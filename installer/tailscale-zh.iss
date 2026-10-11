@@ -149,17 +149,17 @@ begin
   end;
 end;
 
-{ 官方组件是否真的就位。
-
-  【为什么不能只看 tailscale-ipn.exe 是否存在】
-  汉化包自己就会往 {app} 放 tailscale-ipn.exe；一旦官方组件被单独卸掉
-  （服务与 tailscaled.exe 都没了）而界面程序还留在原地，下一次安装就会
-  被误判成「已装好」而跳过官方安装 —— 于是服务始终缺失，托盘只能显示
-  「The Tailscale service not installed on this machine」并且**无法登录**。
-
-  因此判定标准改为「Windows 服务 + 服务端程序」两者都在。
-  Windows 平台上 Tailscale 的服务名固定为 "Tailscale"
-  （见 tailscale 源码 cmd/tailscaled/tailscaled_windows.go: const serviceName = "Tailscale"）。 }
+// 官方组件是否真的就位。
+//
+// 【为什么不能只看 tailscale-ipn.exe 是否存在】
+//  汉化包自己就会往安装目录放 tailscale-ipn.exe；一旦官方组件被单独卸掉
+//  （服务与 tailscaled.exe 都没了）而界面程序还留在原地，下一次安装就会
+//  被误判成「已装好」而跳过官方安装 —— 于是服务始终缺失，托盘只能显示
+//  「The Tailscale service not installed on this machine」并且**无法登录**。
+//
+//  因此判定标准改为「Windows 服务 + 服务端程序」两者都在。
+//  Windows 平台上 Tailscale 的服务名固定为 "Tailscale"
+//  （见 tailscale 源码 cmd/tailscaled/tailscaled_windows.go: const serviceName = "Tailscale"）。
 function TsServiceInstalled(): Boolean;
 begin
   Result := RegKeyExists(HKEY_LOCAL_MACHINE,
