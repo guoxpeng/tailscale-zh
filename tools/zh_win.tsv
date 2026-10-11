@@ -125,3 +125,17 @@ You have enabled a non-default log target. Doing without being told to by Tailsc
 # 注：「A request to sign the following device ...」那条**故意未收录**：
 #     它实际是一条更长的 Go 模板字面量（后面紧接 " {{.OSName}}<a href=...>"），
 #     按句号截断替换会破坏模板渲染；补丁器也已按「无长度立即数」把它拒掉。
+# ---- 第五批：菜单助记符项 + 服务状态文案 + 托盘菜单（v6） ----
+# 背景：Windows 托盘菜单的显示文本走 rdi/rsi 参数位（lea rdi,[str]; mov esi,len），
+#       而「Exit」只是传给该函数的内部 ID（改它不影响显示），真正的显示文本是
+#       带 Windows 助记符的 "E&xit"。同理菜单实际用的是 "&Settings"（不是 Preferences）。
+# 服务状态文案来自一个 map[string]string，其值经 `mov qword ptr [rax+8], <len>`
+# 写入（内存写，不是寄存器立即数），保存这类长度的同时改写字符串数据即可。
+E&xit	退出(&X)
+&Settings	&设置
+&Open Tailscale	&打开 Tailscale
+Open	打开
+The Tailscale service not installed on this machine	本机未安装 Tailscale 服务
+The Tailscale service is stopped	Tailscale 服务已停止
+Failed connecting to the Tailscale service to query its state	无法连接 Tailscale 服务，无法获取其状态
+Failed connecting to the Tailscale service	无法连接 Tailscale 服务

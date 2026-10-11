@@ -6,6 +6,22 @@
 安装器会先用官方 MSI **静默**装好完整组件（`msiexec /qn`，无英文向导、无弹窗），再把界面换成中文版；
 已装同版本的电脑自动跳过官方安装，只替换界面程序。
 
+> ⚠️ **2026-10-11 修订（安装过旧版的请重新下载本安装包再装一次）**
+>
+> - **修复「装完无法登录」**：此前安装器用「界面程序 `tailscale-ipn.exe` 是否存在」判断
+>   「官方组件是否已装」，而汉化包自己就会放这个文件 —— 一旦官方组件被单独卸载过
+>   （服务与 `tailscaled.exe` 没了、界面程序还在），再装就会被误判成「已装好」从而
+>   **跳过官方安装**，结果是 `tailscaled` 服务缺失、托盘显示
+>   「The Tailscale service not installed on this machine」，点「登录...」也没有反应。
+>   现已改为校验 **Windows 服务 `Tailscale` + `{app}\tailscaled.exe`** 是否都在，
+>   缺失时自动静默补装官方组件（必要时强制重装），装不上就明确报错，不再产出残缺安装。
+> - **补齐 8 条残留英文**：托盘右键菜单的 `E&xit` → 退出(&X)、`&Settings` → &设置、
+>   `&Open Tailscale` → &打开 Tailscale、`Open` → 打开（旧表改的是菜单内部 ID `Exit`，
+>   显示文本其实是带 `&` 助记符的那一条，所以界面毫无变化），
+>   以及服务状态提示 `The Tailscale service not installed on this machine` /
+>   `The Tailscale service is stopped` / `Failed connecting to the Tailscale service...`。
+>   汉化条目 118 → **126**。
+
 - **用法**：右键 → **以管理员身份运行**。卸载「Tailscale 中文汉化」即自动还原官方界面程序。
 - 只替换托盘 / 主界面程序 `tailscale-ipn.exe`，**不改动** `tailscaled` 服务与 WinTun 驱动。
 - 汉化后官方数字签名失效，Windows 可能提示「未知发布者」；

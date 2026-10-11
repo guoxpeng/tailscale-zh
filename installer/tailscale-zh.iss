@@ -149,32 +149,50 @@ begin
   end;
 end;
 
-{ 目标机没装过 Tailscale 时，先用随包的官方 MSI 静默装好完整组件。
+{ 官方组件是否真的就位。
+
+  【为什么不能只看 tailscale-ipn.exe 是否存在】
+  汉化包自己就会往 {app} 放 tailscale-ipn.exe；一旦官方组件被单独卸掉
+  （服务与 tailscaled.exe 都没了）而界面程序还留在原地，下一次安装就会
+  被误判成「已装好」而跳过官方安装 —— 于是服务始终缺失，托盘只能显示
+  「The Tailscale service not installed on this machine」并且**无法登录**。
+
+  因此判定标准改为「Windows 服务 + 服务端程序」两者都在。
+  Windows 平台上 Tailscale 的服务名固定为 "Tailscale"
+  （见 tailscale 源码 cmd/tailscaled/tailscaled_windows.go: const serviceName = "Tailscale"）。 }
+function TsServiceInstalled(): Boolean;
+begin
+  Result := RegKeyExists(HKEY_LOCAL_MACHINE,
+                         'SYSTEM\CurrentControlSet\Services\Tailscale')
+            and FileExists(TsDir() + '\tailscaled.exe');
+end;
+
+{ 目标机没装过 Tailscale（或组件残缺）时，用随包的官方 MSI 静默装好完整组件。
   —— 这是「一体化安装」的关键：全新的电脑直接装本包即可，
      不必先手动跑官方安装向导，也就不会遇到官方向导里的英文界面。
       /qn 完全静默；TS_NOLAUNCH=1 让官方安装程序不要把托盘拉起来占用待替换的 exe。
-  返回 True 表示官方主程序已就位。 }
+  返回 True 表示官方服务端程序已就位。 }
 function EnsureOfficial(): Boolean;
 var
   MsiPath: String;
   Rc, I: Integer;
   R: Boolean;
 begin
-  Result := FileExists(TsExe());
+  Result := TsServiceInstalled();
   if Result then
   begin
-    Log('检测到已安装的 Tailscale，跳过官方组件安装');
+    Log('检测到 Tailscale 服务与 ' + TsDir() + '\tailscaled.exe，跳过官方组件安装');
     Exit;
   end;
 
   MsiPath := ExpandConstant('{tmp}') + '\' + MSI_NAME;
   if not FileExists(MsiPath) then
   begin
-    Log('目标机未安装 Tailscale，且随包未提供官方 MSI（' + MsiPath + '）');
+    Log('目标机 Tailscale 组件不完整，且随包未提供官方 MSI（' + MsiPath + '）');
     Exit;   { 保持 False，由调用方决定如何提示 }
   end;
 
-  Log('未检测到 Tailscale，开始静默安装官方组件: ' + MsiPath);
+  Log('未检测到 Tailscale 服务，开始静默安装官方组件: ' + MsiPath);
   R := Exec(ExpandConstant('{sys}\msiexec.exe'),
             '/i "' + MsiPath + '" /qn /norestart TS_NOLAUNCH=1',
             '', SW_HIDE, ewWaitUntilTerminated, Rc);
@@ -183,16 +201,37 @@ begin
   else
     Log('msiexec 启动失败');
 
-  { MSI 装完后文件可能还要片刻才落盘，最多等 20 秒 }
-  for I := 1 to 20 do
+  { MSI 装完后文件可能还要片刻才落盘，最多等 30 秒 }
+  for I := 1 to 30 do
   begin
-    if FileExists(TsExe()) then
+    if TsServiceInstalled() then
       Break;
     Sleep(1000);
   end;
-  Result := FileExists(TsExe());
+
+  { 若 MSI 数据库里已经登记过这个产品（例如官方组件曾被卸载掉一部分、只剩登记），
+    普通 /i 只会走 maintenance 模式、什么都不修；这里再补一次强制重装。 }
+  if not TsServiceInstalled() then
+  begin
+    Log('首次安装后服务仍未就绪，改为强制重装官方组件');
+    R := Exec(ExpandConstant('{sys}\msiexec.exe'),
+              '/i "' + MsiPath + '" /qn /norestart REINSTALL=ALL REINSTALLMODE=vomus TS_NOLAUNCH=1',
+              '', SW_HIDE, ewWaitUntilTerminated, Rc);
+    if R then
+      Log('强制重装 msiexec 返回码 ' + IntToStr(Rc))
+    else
+      Log('强制重装 msiexec 启动失败');
+    for I := 1 to 30 do
+    begin
+      if TsServiceInstalled() then
+        Break;
+      Sleep(1000);
+    end;
+  end;
+
+  Result := TsServiceInstalled();
   if not Result then
-    Log('官方组件安装后仍未找到 ' + TsExe());
+    Log('官方组件安装后仍未就绪：服务或 ' + TsDir() + '\tailscaled.exe 缺失');
 end;
 
 function InitializeSetup(): Boolean;
@@ -202,10 +241,13 @@ begin
   { 随包内置官方安装包：全新的机器也能一键装成中文版，无需预装官方版 }
   Log('随包内置官方安装包，可直接为未安装 Tailscale 的机器部署');
 #else
-  if not FileExists(TsExe()) then
+  { 无内嵌 MSI 的降级版：要求目标机已经装好**完整**的官方组件（含服务） }
+  if not TsServiceInstalled() then
   begin
-    MsgBox('未检测到已安装的 Tailscale。' + #13#10 + #13#10 +
-           '找不到文件:' + #13#10 + TsExe() + #13#10 + #13#10 +
+    MsgBox('未检测到完整安装的 Tailscale（服务或 tailscaled.exe 缺失）。' + #13#10 + #13#10 +
+           '缺少:' + #13#10 +
+           '  · 服务 Tailscale' + #13#10 +
+           '  · ' + TsDir() + '\tailscaled.exe' + #13#10 + #13#10 +
            '请先安装官方 Tailscale {#MyTsVersion}（x64），再运行本汉化安装包。',
            mbCriticalError, MB_OK);
     Result := False;
@@ -229,7 +271,7 @@ begin
   { 干净机器：先把完整的官方组件静默装好，再打汉化补丁 }
   if not EnsureOfficial() then
   begin
-    MsgBox('未能安装 Tailscale 官方组件，安装中止。' + #13#10 + #13#10 +
+    MsgBox('未能安装 Tailscale 官方组件（服务或 tailscaled.exe 未就位），安装中止。' + #13#10 + #13#10 +
            '请检查网络连接，或先手动安装官方 Tailscale {#MyTsVersion}（x64）后重试。',
            mbCriticalError, MB_OK);
     RaiseException('官方组件安装失败');

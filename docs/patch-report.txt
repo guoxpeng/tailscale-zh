@@ -1,4 +1,4 @@
-源: tailscale-ipn.exe.orig (29622776 字节)   扩容区 VA=0x143ca4e08 大小=504
+源: ClientGUIx64 (29622776 字节)   扩容区 VA=0x143ca4e08 大小=504
 
 OK    Connected                        -> 已连接                9->9 字节  副本=1
 OK    Connected. Click for options.    -> 已连接，点击查看           29->24 字节  副本=1  [无静态引用,唯一副本→保长替换]
@@ -130,8 +130,16 @@ OK    A security update from version %s to %s is available. Run `tailscale updat
 OK    Tailscale could not connect to the relay server with ID '%s'. Your Internet connection might be down, or the server might be temporarily unavailable. -> Tailscale 无法连接 ID 为 '%s' 的中继服务器。可能是网络中断，或服务器暂时不可用。 149->110 字节  副本=1
 OK    Tailscale could not connect to the '%s' relay server. Your Internet connection might be down, or the server might be temporarily unavailable. -> Tailscale 无法连接中继服务器 '%s'。可能是网络中断，或服务器暂时不可用。 141->99 字节  副本=1
 OK    You have enabled a non-default log target. Doing without being told to by Tailscale staff or your network administrator will make getting support difficult. -> 您已启用非默认的日志目标。若非 Tailscale 官方或网络管理员要求，请不要这样做，否则会给技术支持带来困难。 156->149 字节  副本=1
+GROW  E&xit                            -> 退出(&X)             5->10 字节  新VA=0x143ca4f4b  改动=1
+OK    &Settings                        -> &设置                9->7 字节  副本=1
+GROW  &Open Tailscale                  -> &打开 Tailscale      15->17 字节  新VA=0x143ca4f55  改动=1
+GROW  Open                             -> 打开                 4->6 字节  新VA=0x143ca4f66  改动=3
+OK    The Tailscale service not installed on this machine -> 本机未安装 Tailscale 服务 51->32 字节  副本=1
+OK    The Tailscale service is stopped -> Tailscale 服务已停止    32->25 字节  副本=1
+OK    Failed connecting to the Tailscale service to query its state -> 无法连接 Tailscale 服务，无法获取其状态 61->53 字节  副本=1
+OK    Failed connecting to the Tailscale service -> 无法连接 Tailscale 服务  42->29 字节  副本=1
 
-保长替换: 102 条    扩容: 16 条    未处理: 0 条
+保长替换: 107 条    扩容: 19 条    未处理: 0 条
 
 因「声明长度不符」被拒（重叠字面量保护）:
   REJECT Connected                      @0x92af2f(VA=0x14092bf2f) 声明长度=[12] != 9
@@ -148,5 +156,9 @@ OK    You have enabled a non-default log target. Doing without being told to by 
   REJECT You are logged out.            @0x957406(VA=0x140958406) 声明长度=[48] != 19
   REJECT A security update from version %s to %s is available. @0x96931a(VA=0x14096a31a) 声明长度=[124] != 53
   REJECT An update from version %s to %s is available. @0x968b30(VA=0x140969b30) 声明长度=[116] != 45
+  REJECT Open                           @0x92aee7(VA=0x14092bee7) 声明长度=[12] != 4
+  REJECT Open                           @0x92c305(VA=0x14092d305) 声明长度=[13] != 4
+  REJECT Open                           @0x92c387(VA=0x14092d387) 声明长度=[13] != 4
+  REJECT Failed connecting to the Tailscale service @0x9561c3(VA=0x1409571c3) 声明长度=[47] != 42
 
-输出: build\tailscale-ipn.zh.exe (29622776 字节)  改变字节数=4052  扩容区已用 323/504
+输出: work/tailscale-ipn.zh6.exe (29622776 字节)  改变字节数=4295  扩容区已用 356/504

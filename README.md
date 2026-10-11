@@ -77,15 +77,17 @@
 
 ## 二、汉化范围
 
-共 **118 条**界面文案，覆盖主面板、Preferences（设置）、账号子菜单、Exit nodes（出口节点）子菜单，
-以及托盘提示、气泡通知、Taildrop 文件传输、更新提示、管理员批准/签署，
-和**无人值守 / 出口节点确认对话框**等二级界面。
+共 **126 条**界面文案，覆盖主面板、Preferences（设置）、账号子菜单、Exit nodes（出口节点）子菜单，
+以及托盘提示、气泡通知、Taildrop 文件传输、更新提示、管理员批准/签署、
+**无人值守 / 出口节点确认对话框**、**托盘右键菜单**与**服务状态提示**等二级界面。
 完整中英对照见 [`tools/zh_win.tsv`](tools/zh_win.tsv)。
 
 | 类别 | 例子 |
 | --- | --- |
 | 连接状态 | `Connected` → 已连接 · `Connected - ` → 已连接 -  · `Connecting...` → 连接中... · `Connection lost` → 连接已断开 |
 | 菜单项 | `Preferences` → 设置 · `Log &out` → 注销 · `Bug report...` → 问题反馈... · `Open with...` → 打开方式... |
+| 托盘右键菜单 | `E&xit` → 退出(&X) · `&Settings` → &设置 · `&Open Tailscale` → &打开 Tailscale · `Open` → 打开 |
+| 服务状态提示 | `The Tailscale service not installed on this machine` → 本机未安装 Tailscale 服务 · `The Tailscale service is stopped` → Tailscale 服务已停止 · `Failed connecting to the Tailscale service` → 无法连接 Tailscale 服务 |
 | 设备列表 | `This device: %s (%s)` → 本机: %s (%s) · `unknown device` → 未知设备 · `Managed by %s` → 管理方 %s |
 | 出口节点 | `Exit nodes` → 出口 · `Run exit node...` → 运行出口节点 · `No exit node available` → 无可用出口节点 |
 | 托盘提示 | `Tailscale: Please log in.` → Tailscale: 请登录。 · `You are logged out. The last login error was: %v` → 您已注销。上次登录错误：%v |
@@ -104,9 +106,9 @@ Go 编译的二进制把字符串常量**连续**堆在 `.rdata` 里，代码用
 
 1. 用 [capstone](https://www.capstone-engine.org/) **全量反汇编** `.text`，建立 `地址 → [(引用指令, 声明长度)]` 表。
 2. **保长替换为主**：中文 UTF-8 字节数 ≤ 英文时，原地写入中文 + 空格补齐。
-   长度一字节不变 ⇒ 不用改任何指令，对 `LEAQ`、静态 `{ptr,len}` 头、数据段指针等**任何引用方式都自动生效**。本版 118 条里有 102 条走这条路。
-3. **扩容**：中文更长时（本版 16 条），写入 `.rsrc` 尾部
-   504 字节全零空档，并同步改写引用处的 `LEAQ` 位移与长度立即数。当前共用掉 323 字节。
+   长度一字节不变 ⇒ 不用改任何指令，对 `LEAQ`、静态 `{ptr,len}` 头、数据段指针等**任何引用方式都自动生效**。本版 126 条里有 107 条走这条路。
+3. **扩容**：中文更长时（本版 19 条），写入 `.rsrc` 尾部
+   504 字节全零空档，并同步改写引用处的 `LEAQ` 位移与长度立即数。当前共用掉 356 字节。
 4. **重叠字面量保护**（关键）：`.rdata` 里存在共享前缀的字面量，例如 `Preferences`(11) 与
    `PreferencesMenu`(15) 相邻存放。后者是 syspolicy 设置键，用来拼 Prometheus 指标名；
    若被误改成中文会直接 `panic: illegal metric name`。
@@ -198,7 +200,7 @@ CI 会在**源文件哈希不符**时直接失败（不会产出错误的包）�
 │   ├── verify.py                              产物校验器
 │   ├── analyze_refs.py                        RIP 相对引用扫描（排查用）
 │   ├── build_strtab3.py                       字符串常量表提取（排查用）
-│   └── zh_win.tsv                             118 条中英对照表（支持 \r\n\xHH 转义）
+│   └── zh_win.tsv                             126 条中英对照表（支持 \r\n\xHH 转义）
 └── docs/patch-report.txt                      最近一次补丁明细
 ```
 
@@ -238,7 +240,26 @@ CI 会在**源文件哈希不符**时直接失败（不会产出错误的包）�
 - 安装器新增**版本一致性检查**：检测到已装 `tailscale-ipn.exe` 大小与本包基准不符时
   弹窗确认，避免把不同版本的界面程序与 `tailscaled` 服务混用。
 
-**汉化条目**：47 → **118 条**（保长替换 102 + 扩容 16，扩容区 323/504 字节）。
+**汉化条目**：47 → **118 条**（修订 2 后 **126 条**：保长替换 107 + 扩容 19，扩容区 356/504 字节）。
+
+**修订 2 —— 修复「无法登录」与「托盘菜单仍有英文」**
+
+- **无法登录 = 官方服务缺失**。装完本包后托盘只显示「The Tailscale service not installed on this machine」，
+  点「登录...」也无效，因为 `tailscaled` 服务压根不在。
+  根因是安装器判断「官方组件是否已装」用的是**界面程序 `tailscale-ipn.exe` 是否存在** ——
+  可汉化包自己就会往 `{app}` 放这个文件；一旦官方组件被单独卸掉（服务与 `tailscaled.exe` 没了、
+  界面程序还在原地），再装就会被误判成「已装好」而**跳过官方安装**。
+  现已改为检查 **Windows 服务 `Tailscale` 与 `{app}\tailscaled.exe`** 是否都在；
+  缺失时自动静默安装官方组件，必要时再补一次 `REINSTALL=ALL REINSTALLMODE=vomus` 强制重装，
+  装完仍不就位则明确报错中止（不再静默产出一个「只有界面、没有服务」的残缺安装）。
+- **托盘菜单「Exit」仍是英文**：菜单项的显示文本走 `rdi/rsi` 参数位
+  （`lea rdi, [str]; mov esi, len`），而 `Exit` 只是传给该函数的**内部 ID** ——
+  旧表改的正是这个 ID，界面自然毫无变化。真正的显示文本是带 Windows 助记符的 `E&xit`；
+  同一批漏掉的还有 `&Settings`、`&Open Tailscale`、`Open`，现已一并汉化。
+- **服务状态提示整组漏翻**：`The Tailscale service not installed on this machine` /
+  `The Tailscale service is stopped` / `Failed connecting to the Tailscale service ...`
+  来自一个 `map[string]string`，其值经 `mov qword ptr [rax+8], <len>` 写入**内存**，
+  旧版补丁器只认「写寄存器」的 MOV 作为长度声明，因此整组都没落位。现已补上。
 
 **Release 结构**：**一个 Release 同时挂两个端的安装包**（Windows = 安装包 exe，Android = apk），
 两条流水线写同一个 `v<版本号>` 标签，各自只覆盖自己的文件。汉化主程序、对照表、补丁明细、
