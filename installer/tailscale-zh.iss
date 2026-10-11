@@ -75,11 +75,30 @@ WizardStyle=modern
 UninstallDisplayName={#MyZhName} {#MyTsVersion}
 UninstallDisplayIcon={app}\{#ExeName}
 SetupLogging=yes
-; 本安装包会**原地替换** tailscale-ipn.exe。Explorer 的图标缓存 / 开始菜单
-; 磁贴缓存按「路径」记，文件被换掉后仍会继续显示旧图标甚至通用图标。
-; ChangesAssociations=yes 会让 Inno 在安装结束时发一条 SHCNE_ASSOCCHANGED，
-; 让 shell 刷新缓存；配合下面的 ie4uinit 一起，装完图标就是新的。
-ChangesAssociations=yes
+; ===== 收尾阶段不能再出岔子：下面三条都跟「点完成关不掉」那次事故有关 =====
+;
+; 1) DisableFinishedPage=yes —— 不要「完成」页。
+;    真实事故 2026-10-11 21:27：装完停在完成页，用户点「完成」毫无反应、
+;    还伴随系统提示音，最后是 Windows 在 21:30:18 把它按「应用挂起」关掉的
+;    （事件日志 1002）。挂点落在 Inno 自己的收尾流程里（安装脚本这边
+;    21:27:52.664 就已经全部做完），脚本侧无从修复；既然「完成」页只是给个
+;    确认，那就整个去掉 —— 进度条走完窗口自己关，压根不存在一个「等着被点」
+;    的按钮。官方 Windows 版 Tailscale 的 MSI 安装界面也是一装完就关。
+;
+; 2) RestartIfNeededByRun=no —— 必须的配套。
+;    没有完成页就没有「是否重启」的询问页。一旦 Inno 因为 [Run] 留下的待重启
+;    文件把 NeedsRestart 置为真，它会**直接重启你的电脑**。本包的 [Run] 只是
+;    刷一下图标缓存、拉起托盘，没有任何需要重启的东西。
+;
+; 3) 刻意**不用** ChangesAssociations=yes。
+;    本包不注册任何文件关联，那条指令唯一的作用是让 Inno 在安装结束时调一次
+;    SHChangeNotify(SHCNE_ASSOCCHANGED) —— 那是一次**同步广播给整个 shell** 的
+;    调用，机器上只要有一个窗口不响应，它就会卡在那里；而它执行的位置恰恰就在
+;    上面那个挂死窗口里（见 Inno 源码 Setup.MainForm.pas 里 Install 的尾部）。
+;    图标缓存刷新改由 [Run] 的 ie4uinit.exe -show 加安装包自己的
+;    PurgeStaleTrayIconCache() 负责，已经够了。
+DisableFinishedPage=yes
+RestartIfNeededByRun=no
 
 [Languages]
 ; 官方未随安装包分发简中语言包，这里从 issrc 同版本 tag 取来放在同目录，保证编译期确定
@@ -90,23 +109,64 @@ Name: "chinese"; MessagesFile: "{#SourcePath}\ChineseSimplified.isl"
 Source: "..\build\tailscale-ipn.zh.exe"; DestDir: "{app}"; DestName: "{#ExeName}.new"; Flags: ignoreversion
 #ifdef HaveMsi
 ; 官方安装包：仅当目标机未安装 Tailscale 时执行（见 [Code] 的 EnsureOfficial）。
-; 落到 {tmp} 并装完即删，不污染安装目录、不进卸载清单。
-; DestName 固定成 {#MsiName}，与 [Code] 里的 MSI_NAME 常量严格一致
-Source: "..\{#MsiName}"; DestDir: "{tmp}"; DestName: "{#MsiName}"; Flags: deleteafterinstall
+; 落到 {tmp}，装完由 DropTempMsi() 立刻删掉，不污染安装目录、不进卸载清单。
+; DestName 固定成 {#MsiName}，与 [Code] 里的 MSI_NAME 常量严格一致。
+;
+; ★ 这里**刻意不用** deleteafterinstall：
+;   带那个 flag 时，Inno 是在**安装程序退出时**（也就是用户点「完成」那一瞬）
+;   才去删这个文件。而此刻 Windows Installer 服务往往还攥着这个 MSI，
+;   删除失败它就永久留在 %TEMP% 里了 —— 实测每次全新安装都会在
+;   %TEMP%\is-XXXX.tmp\ 里留下一个 38MB 的 tailscale-setup.msi。
+;   更糟的是这段删除正好压在「点完成」那一刻，一旦出岔子，
+;   用户看到的就是「完成按钮点不动」。改由 DropTempMsi() 在
+;   安装界面还停在进度条上时就删掉（带重试、失败只记日志），
+;   退出阶段就不会再有这种大文件要处理。
+Source: "..\{#MsiName}"; DestDir: "{tmp}"; DestName: "{#MsiName}"
 #endif
+
+[Icons]
+; 桌面 + 开始菜单快捷方式。
+;
+; 官方 Windows 版 Tailscale 只在通知区域放一个图标，不创建任何快捷方式 ——
+; 于是 Win11 把新图标默认塞进「隐藏的图标」溢出区之后，用户根本找不到入口
+; （这正是「装了但看不见」的一半原因）。本包统一补上桌面图标。
+;
+; 用 {commondesktop} / {commonprograms}（**所有用户**）而不是 {userdesktop}：
+; 本包是 PrivilegesRequired=admin，若用户是通过「另一个管理员账户」提权安装的，
+; {userdesktop} 会把快捷方式建到**那个账户**的桌面上，当前用户反而看不到。
+;
+; 指向 {app}\{#ExeName}（也就是汉化版主程序）。Tailscale 的界面程序是单实例的：
+; 已经在跑时双击它不会另开一个窗口，只会把已有的唤到前面，重复点也不会出错。
+Name: "{commondesktop}\{#MyZhName}"; Filename: "{app}\{#ExeName}"; \
+  WorkingDir: "{app}"; Comment: "启动 Tailscale（中文汉化版）"
+
+; 开始菜单里也放一份「启动 + 卸载」。Windows 应用惯例，顺便留一条
+; 「设置 → 应用」打不开时的卸载退路。
+Name: "{commonprograms}\{#MyZhName}"; Filename: "{app}\{#ExeName}"; \
+  WorkingDir: "{app}"; Comment: "启动 Tailscale（中文汉化版）"
+Name: "{commonprograms}\卸载 {#MyZhName}"; Filename: "{uninstallexe}"
 
 [Run]
 ; 刷新 Windows 图标缓存。装完本包后 tailscale-ipn.exe 已经是汉化版，
 ; 但 Explorer 可能还在用旧缓存渲染任务栏/开始菜单/托盘图标，
 ; 表现为「图标不显示 / 变成白纸图标」。
+;
+; ★ 自从 [Setup] 里去掉了 ChangesAssociations（理由见那里），这条 ie4uinit
+;   就成了**唯一**的图标缓存刷新入口 —— 所以 skipifdoesntexist 要留着：
+;   老系统上可能没有 ie4uinit.exe，那种情况下跳过即可，绝不能报错中断。
 ; 必须以「登录用户」身份跑 —— 图标缓存是 per-user 的。
 ; 旧系统上可能没有 ie4uinit.exe，用 skipifdoesntexist 跳过而不是报错。
 ; 注意：[Run] 段**没有** ignoreerrors 这个 flag（那是 [Files]/[UninstallRun] 的），
 ; 写上会直接编译失败 "Parameter \"Flags\" includes an unknown flag"。
 ; ie4uinit 退出码非 0 不会中断安装 —— [Run] 本来就不检查退出码。
+;
+; nowait 是必须的：默认 Inno 会**等这个进程结束**才继续（waituntilterminated）。
+; ie4uinit.exe 是 shell 的图标缓存刷新工具，在有大量图标/慢盘/被杀软盯着的机器上
+; 挂住几十秒并不罕见 —— 一旦它不返回，安装器就一直停在
+; 「正在刷新系统图标缓存…」那一步不动（用户视角就是「装到一半卡死」）。
+; 这里只是**顺带**刷一下缓存，没有任何后续步骤依赖它跑完，所以发起来就走。
 Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"; \
-  Flags: runhidden runasoriginaluser skipifdoesntexist; \
-  StatusMsg: "正在刷新系统图标缓存…"
+  Flags: runhidden runasoriginaluser skipifdoesntexist nowait
 
 [Code]
 const
@@ -648,6 +708,43 @@ begin
     Log('官方组件安装后仍未就绪：服务或 ' + TsDir() + '\tailscaled.exe 缺失');
 end;
 
+{ 删掉随包内嵌的官方 MSI（如果它被解压出来过）。
+
+  时机是关键：**必须在安装界面还停在进度条上的时候删**，不能交给 Files 段的
+  deleteafterinstall —— 那个 flag 是让 Inno 在**安装程序退出时**
+  （用户点「完成」之后）才动手删。而那一刻 Windows Installer 服务往往还攥着
+  这个 MSI 不放，删除失败它就永久留在 %TEMP% 里了：实测每次全新安装都会在
+  %TEMP%\is-XXXX.tmp\ 下留一个 38MB 的 tailscale-setup.msi。
+
+  更要紧的是：那段删除正好压在「点完成」这一瞬 —— 一旦它出岔子，用户看到的
+  就是「完成按钮点不动、还叮咚响」。挪到这里删，退出阶段就没有大文件要处理了。
+
+  ★ 注意：这个注释块里**绝不能出现行首的方括号**。Inno 的段扫描器不认块注释，
+    只要有哪一行以 [ 开头（哪怕缩进过），整行都会被当成段标签，
+    编译期直接报 "Invalid section tag"。文件名与 Files 段里的 DestName
+    严格一致（都来自 MSI_NAME 常量）。
+  删不掉也不影响安装结果，记一笔日志，交给系统清理 %TEMP%。 }
+procedure DropTempMsi();
+var
+  P: String;
+  I: Integer;
+begin
+  P := ExpandConstant('{tmp}') + '\' + MSI_NAME;
+  if not FileExists(P) then
+    Exit;
+  { msiexec 返回后句柄未必立刻释放，隔一会儿再试，最多 5 次。 }
+  for I := 1 to 5 do
+  begin
+    if DeleteFile(P) then
+    begin
+      Log('已清理临时官方安装包（第 ' + IntToStr(I) + ' 次尝试）');
+      Exit;
+    end;
+    Sleep(700);
+  end;
+  Log('临时官方安装包暂时删不掉（多半是 Windows Installer 服务还占着）：' + P);
+end;
+
 function InitializeSetup(): Boolean;
 var
   Sz: Integer;
@@ -716,6 +813,14 @@ var
   Sz: Integer;
   TrayWasRunning: Boolean;
 begin
+  if CurStep = ssDone then
+  begin
+    { ssDone 是 Inno 收尾的最后一步：此时向导已经隐藏，紧接着就是 TerminateApp。
+      打一行日志，出问题时好界定「卡在哪一半」。 }
+    Log('安装程序进入 ssDone（收尾）');
+    Exit;
+  end;
+
   if CurStep <> ssPostInstall then
     Exit;
 
@@ -733,6 +838,11 @@ begin
     RaiseException('官方组件安装失败');
   end;
 #endif
+
+  { 随包内嵌的官方 MSI 已经用完了 —— 趁安装界面还停在进度条上把它删掉。
+    绝不能交给 [Files] 的 deleteafterinstall 去在退出阶段处理，理由见
+    DropTempMsi 上方的注释。 }
+  DropTempMsi();
 
   { 版本一致性检查（**兜底**）。汉化补丁依赖 1.104.1 的精确文件偏移，只对这个版本有效。
 
@@ -851,6 +961,12 @@ begin
 
     这里只做一件事：把 GUI 拉起来，确认它活着；万一挂了就清理后重试。 }
   StartTrayAsUser(TrayWasRunning);
+
+  { ★ 这是我们最后一行日志，也是排查「点完成关不掉」那类事故的分界线：
+    它之后的所有事情都归 Inno 自己管（写 Need to restart Windows? 一行、
+    隐藏向导、走 TerminateApp 退出）。下次再出现卡死，看日志有没有这一行，
+    就能立刻判断是「我们的活没干完」还是「Inno 的收尾卡住了」。 }
+  Log('汉化补丁已全部就位，交还给安装程序收尾');
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

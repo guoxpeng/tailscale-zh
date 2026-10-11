@@ -364,6 +364,51 @@ CI 会在**源文件哈希不符**时直接失败（不会产出错误的包）�
   > 会被抢走，把「在跑」误判成「没跑」）；`tasklist` 自己的退出码**不能**用
   > （没有任何进程匹配时它也返回 0）。
 
+**修订 5 —— 去掉「完成」页；补上桌面/开始菜单快捷方式**
+
+现象：装完停在最后那一页，**点「完成」毫无反应，还伴随系统提示音**，窗口关不掉。
+日志在 `21:27:52.666  Need to restart Windows? No` 这一行之后**戛然而止**（没有 `Log closed.`），
+`%TEMP%\is-XXXX.tmp\` 里还留着 38MB 的 `tailscale-setup.msi`；
+Windows 事件日志里有一条 **1002「应用挂起」**：`Tailscale-zh-1.104.1-setup.tmp 停止与 Windows 交互并已关闭`。
+
+- **先排除掉的错误嫌疑**：`{tmp}` 里那个 38MB 的 `deleteafterinstall` 大文件删不掉，**不会**卡住退出。
+  实测：用「不许删除」的共享模式锁住它，安装器仍然 3.45 秒正常退出（不锁是 0.30 秒），
+  不弹框、不报错，只是把文件和临时目录留下。所以「大文件删不掉」是**结果**不是原因。
+- **「叮咚响」的官方释义**：Inno 源码（`Projects/Src/Setup.MainForm.pas`）里那两处
+  `TWindowDisabler` 旁边写着 —— *"Disable windows during execution of [Run] entries
+  so that a nice "beep" is produced if the user tries clicking on WizardForm"*。
+  点在被禁用的窗口上就是这个声音。
+- **挂点归谁**：日志最后一行之后的全部流程都属于 Inno 自己的收尾（写 `Need to restart Windows?`
+  → 隐藏向导 → `TerminateApp`）。沙盒里反复复现不出来（沙盒没有真实 MSI 安装、没有提权、
+  托盘拉起被注释掉），连「以原用户身份启动一个常驻子进程」都验过 —— 0.30 秒正常退出。
+  既然脚本侧无从修复，就**把这一页整个去掉**：
+
+  1. **`DisableFinishedPage=yes`** —— 进度条走完窗口自己关，不存在一个「等着被点」的按钮，
+     「点了没反应」从结构上不可能再发生。官方 Windows 版 Tailscale 的 MSI 界面也是一装完就关。
+  2. **`RestartIfNeededByRun=no`** —— 必须的配套：没有完成页就没有「是否重启」的询问页，
+     万一 Inno 因 `[Run]` 的待重启文件把 `NeedsRestart` 置真，它会**直接重启你的电脑**。
+  3. **去掉 `ChangesAssociations=yes`** —— 本包不注册任何文件关联，那条指令唯一的作用是
+     让 Inno 在安装结束时调一次 `SHChangeNotify(SHCNE_ASSOCCHANGED)`：一次**同步广播给整个 shell**
+     的调用，且执行位置恰恰就在上面那个挂死窗口里。图标缓存刷新改由 `ie4uinit.exe -show` 独家负责。
+  4. 日志新增两行分界线（`ssDone` 进入收尾 / `汉化补丁已全部就位`），下次再出问题一眼能看出卡在哪一半。
+
+- **桌面快捷方式（用户诉求）**：官方 Windows 版 Tailscale 只在通知区域放一个图标、**不创建任何快捷方式**，
+  于是 Win11 把新图标默认塞进「隐藏的图标」溢出区之后用户根本找不到入口。本包现在补上
+  **桌面 + 开始菜单（启动 / 卸载）**三处；用 `{commondesktop}` / `{commonprograms}`（所有用户）
+  而不是 `{userdesktop}` —— 本包是 `PrivilegesRequired=admin`，若用户是经**另一个管理员账户**提权安装的，
+  `{userdesktop}` 会把快捷方式建到那个账户的桌面上，当前用户反而看不到。卸载时一并删除。
+- **不再每次全新安装都往 `%TEMP%` 留一个 38MB 的官方 MSI**：`[Files]` 里给 MSI 的
+  `deleteafterinstall` 已去掉。那个 flag 让 Inno 在**安装程序退出时**（也就是用户点按钮那一瞬）
+  才去删文件，而此刻 Windows Installer 服务往往还攥着它不放 —— 删不掉就永久留下。
+  改由 `DropTempMsi()` 在进度条还走着的时候就删（带 5 次重试，失败只记日志）。
+- **`[Run]` 的 `ie4uinit` 加 `nowait`**：默认 Inno 会等它结束才继续；它是 shell 的图标缓存刷新工具，
+  在慢盘/图标多/被杀软盯着的机器上挂几十秒并不罕见，一旦不返回安装器就一直停在
+  「正在刷新系统图标缓存…」。这里只是顺带刷一下，没有任何后续步骤依赖它跑完。
+
+> 编译期的坑（已写进 `.iss` 注释）：Inno 的**段扫描器不认 `{ }` 块注释** ——
+> 注释里只要有哪一行以 `[` 开头（哪怕缩进过），整行都会被当成段标签，直接报
+> `Invalid section tag`。
+
 **Release 结构**：**一个 Release 同时挂两个端的安装包**（Windows = 安装包 exe，Android = apk），
 两条流水线写同一个 `v<版本号>` 标签，各自只覆盖自己的文件。汉化主程序、对照表、补丁明细、
 一键脚本一律只留在仓库里，不再重复上传；文件校验值由 GitHub 直接标在资产上，
