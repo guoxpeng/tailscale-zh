@@ -1,2 +1,2 @@
-e8715dee3929712d7bfb5123eb3612bf1244060b589a68f5e8c63f7b39bcb535  tailscale-ipn.zh.exe
-407604560d17fa81b0c68bfcb0f277ad104b2fb45f24c13c35c9daf4ef5d7f79  install_zh.bat
+db38196183ce5bcea956cd5432e2c60281dabc88add1307b67a951b4da152c45  install_zh.bat
+38be3ebc4d5a7341e76e5caa75a0c62e06f8f5bb4cae31fd009cfb2f995eb4ae  tailscale-ipn.zh.exe

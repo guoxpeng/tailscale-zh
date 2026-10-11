@@ -91,6 +91,14 @@ jobs:
       - name: Verify patched binary
         run: python tools\verify.py build\tailscale-ipn.exe build\tailscale-ipn.zh.exe tools\zh_win.tsv
 
+      # prebuilt/ 与 SHA256SUMS.txt 是「手工提交」的成品副本（README 的方式 B/C
+      # 让用户直接下载它们），CI 从不过问就没人会发现它们过期。
+      # 2026-10-11 就真出过一次：对照表 126 -> 140 条之后 build 产物换了，
+      # prebuilt 里那份还是旧的，按方式 B/C 装出来主界面仍是英文。
+      # 这里把它变成硬检查：prebuilt 必须与本次构建逐字节一致。
+      - name: Verify prebuilt copy is in sync
+        run: python tools\prebuilt_check.py build\tailscale-ipn.zh.exe
+
       - name: Install Inno Setup ${{ env.INNO_VERSION }}
         shell: pwsh
         run: |

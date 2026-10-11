@@ -12,6 +12,14 @@
 ;  安装: 把官方原版备份为 tailscale-ipn.exe.orig，再写入汉化版
 ;  卸载: 自动把 .orig 还原回 tailscale-ipn.exe（不卸载官方 Tailscale）
 ;
+;  【安装程序的启动方式】PrivilegesRequired=admin —— Inno 会**自己**弹 UAC 提权，
+;  所以请用户**双击**运行即可。不要「右键 → 以管理员身份运行」：
+;  Inno 文档写明那样启动时 runasoriginaluser / ExecAsOriginalUser 会失效，
+;  安装器将拿不到「登录用户」的凭据，后果是
+;    · 托盘 GUI 会被以提权身份拉起（Tailscale 官方不支持 GUI 提权运行）；
+;    · 「刷新托盘图标」那一步的重启 Explorer 只能放弃（提权版 Explorer 接管不了桌面）。
+;  这条已经写进 README；改安装器行为时请一并留意。
+;
 ;  编译: ISCC.exe installer\tailscale-zh.iss
 ;  前置: ..\build\tailscale-ipn.zh.exe   由 tools/build.py 生成（必需）
 ;        ..\tailscale-setup.msi         官方安装包（可选；有则一体化）
@@ -19,7 +27,9 @@
 
 #define MyZhName    "Tailscale 中文汉化"
 #define MyTsVersion "1.104.1"
-#define MyZhVersion "1.2.0"
+; 本汉化包自身的版本**不在这里维护** —— 它就是 Release 标签（pc-v1.104.1-rN）。
+; 安装包以 AppVersion = MyTsVersion 登记（对应官方组件版本），
+; 免得出现「安装包说自己是 1.2.0、Release 说自己是 r9」两套版本号对不上的情况。
 ; 唯一被替换的文件（托盘 / 主界面程序）。全脚本只在这里定义一次。
 #define ExeName     "tailscale-ipn.exe"
 ; 随包的官方安装包文件名（若提供）
@@ -118,31 +128,47 @@ end;
 
 { 结束正在运行的托盘 / 主界面程序，否则文件被占用。
 
-  Tailscale 不只自己会跑 tailscale-ipn.exe —— tailscaled 服务在 GUI 消失后
-  还会把它再拉起来（托盘图标需要重新注册时就会）。所以在「准备换文件」这种
-  要求文件完整且可独占的时刻，杀一次不够，要连着确认几次再往下走，
-  否则紧接着的 rename 会因为文件仍在运行而失败。
+  为什么「杀一次不够、要连着确认几次」：进程退出（尤其是 /F 强杀）之后，
+  它持有的文件句柄不一定立刻释放；而紧接着的 rename 需要独占。
+  与其赌一次成功，不如连着确认几轮再往下走。
 
-  taskkill 返回 128 表示「没找到该进程」，属正常，不必理会。 }
-procedure KillTray();
+  （曾经这里写着「tailscaled 服务会把 GUI 拉回来」—— 实测并不成立：
+    强杀 GUI 之后连等 12 秒也没有任何新进程。这句话已按实测结论更正，
+    免得后人据此推出错误的时序假设。）
+
+  taskkill 返回 128 表示「没找到该进程」，属正常，不必理会。
+
+  返回值 True 表示「调用前它本来就在运行」——
+  调用方据此决定装完要不要把它拉回来（见 StartTrayAsUser 的 Force 参数）。 }
+function KillTray(): Boolean;
 var
   Rc, I: Integer;
 begin
+  Result := False;
+
   { 先「温和」请它退出：taskkill 不带 /F 会向窗口发 WM_CLOSE。
     GUI 走正常退出流程时才会调用 Shell_NotifyIcon(NIM_DELETE)，
     把自己在通知区域里的图标注销掉。这一步别省 ——
     强杀（/F）会让 Explorer 侧留下一个「登记着但没人管」的图标，
     之后新拉起的 GUI 再去注册时容易撞上参数校验失败（error 87）。 }
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM ' + EXE_NAME, '',
-       SW_HIDE, ewWaitUntilTerminated, Rc);
+  if Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM ' + EXE_NAME, '',
+          SW_HIDE, ewWaitUntilTerminated, Rc) then
+    if Rc = 0 then
+      Result := True;
   Sleep(1200);
 
   { 没响应 WM_CLOSE（或压根没在跑）就强杀；连杀 3 次是因为
-    tailscaled 服务会在 GUI 消失后又把它拉起来。 }
+    tailscaled 服务会在 GUI 消失后又把它拉起来。
+
+    注意：taskkill 的退出码 0 = 「找到了并且结束掉了」，128 = 「没找到」，
+    其它非 0 = 找到了但结束失败（例如进程只有隐藏窗口、必须先 /F）。
+    这三种情况里只有 128 才代表「本来没在跑」。 }
   for I := 1 to 3 do
   begin
-    Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM ' + EXE_NAME, '',
-         SW_HIDE, ewWaitUntilTerminated, Rc);
+    if Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM ' + EXE_NAME, '',
+            SW_HIDE, ewWaitUntilTerminated, Rc) then
+      if Rc = 0 then
+        Result := True;
     Sleep(600);
   end;
 end;
@@ -151,24 +177,51 @@ end;
   注意：Inno 里没有 ShellExecAsUser 这个脚本函数，正确的是 ExecAsOriginalUser。
   **本函数只能在安装阶段调用** —— ExecAsOriginalUser 在卸载阶段会抛致命错误
   "Cannot call ExecAsOriginalUser function during Uninstall"，
-  因此卸载流程不会拉起托盘（原因详见 CurUninstallStepChanged 末尾）。 }
-procedure StartTrayAsUser();
+  因此卸载流程不会拉起托盘（原因详见 CurUninstallStepChanged 末尾）。
+
+  Force = True 表示「安装前它本来就在跑」（由 KillTray 的返回值给出）：
+  这种时候即使当前是静默安装也必须拉回来 —— 否则用户的任务栏图标会被
+  安装程序杀掉之后凭空消失，一直要到下次登录（Tailscale 的开机自启）才恢复。
+
+  Force = False 才是「静默安装就别自作主张弹界面」的原意：
+  部署脚本跑到一半突然冒出一个托盘程序，既没人在桌面前确认，
+  也容易和后续自动化步骤抢文件。 }
+procedure StartTrayAsUser(Force: Boolean);
 var
   Rc: Integer;
 begin
-  { 静默安装（/SILENT、/VERYSILENT，企业批量部署的常规用法）时不要把界面弹出来 ——
-    部署脚本跑到一半突然冒出一个托盘程序，既没人在桌面前确认，也容易和后续
-    自动化步骤抢文件。非静默（用户双击）时才自动启动。 }
-  if WizardSilent() then
+  if WizardSilent() and (not Force) then
   begin
     Log('静默安装：按约定跳过自动启动托盘程序');
     Exit;
   end;
+  if Force and WizardSilent() then
+    Log('静默安装，但安装前托盘程序本来就在运行 —— 把它拉回来');
   if not FileExists(TsExe()) then
     Exit;
+
+  { 启动方式按可靠性排序：
+
+    1) Inno 的 ExecAsOriginalUser —— 用**启动安装程序的那个用户**（通常未提权）的
+       凭据执行。正常「双击 → 同意 UAC」时可用。
+
+       ⚠ 但 Inno 官方文档写明：若用户是「右键 → 以管理员身份运行」启动的（或者
+         安装程序本身由已提权的进程拉起），Inno **拿不到原始用户凭据**，
+         这个调用会「没有效果」—— 也就是**以提权身份**把 GUI 拉起来。
+         而 Tailscale 官方不支持 GUI 提权运行。
+         所以安装程序请**双击**运行，让它自己弹 UAC；不要右键「以管理员身份运行」。
+
+    2) 【兜底】把 exe 交给**已在用户会话里的 Explorer** 打开。
+       Explorer 自己永远不会以提权身份运行，所以由它转交启动的进程一定是
+       登录用户的「中等完整性」进程 —— 与第 1 条是否失效无关。
+       一键脚本 install_zh.bat 从头到尾用的就是这个手法。 }
   if ExecAsOriginalUser(TsExe(), '', TsDir(), SW_SHOWNORMAL, ewNoWait, Rc) then
     Exit;
-  Log('ExecAsOriginalUser 启动托盘失败，回退为 Exec');
+  Log('以原始用户身份启动托盘失败（多半是用「以管理员身份运行」启动的），改由 Explorer 转交');
+  if Exec(ExpandConstant('{sys}\explorer.exe'), '"' + TsExe() + '"', '',
+          SW_SHOWNORMAL, ewNoWait, Rc) then
+    Exit;
+  Log('Explorer 转交也失败，最后回退为 Exec（可能以提权身份运行）');
   if not Exec(TsExe(), '', TsDir(), SW_SHOWNORMAL, ewNoWait, Rc) then
     Log('启动 Tailscale 托盘程序失败，请手动运行 ' + TsExe());
 end;
@@ -473,7 +526,22 @@ begin
        ' & start "" explorer.exe', '',
        SW_HIDE, ewNoWait, Rc) then
   begin
-    Log('重启 Explorer 失败；托盘图标可能要到下次登录才会更新');
+    { 拿不到「原始用户」凭据时**刻意不重启 Explorer**。
+
+      这种情况几乎都是「右键 → 以管理员身份运行」启动的安装程序 ——
+      Inno 文档写明此时 runasoriginaluser 没有效果，会退化成用安装程序**自己的
+      提权身份**执行。要是以提权身份去 taskkill + start explorer，
+      新拉起的很可能是**提权版 Explorer**（Windows 不会让它接管用户会话的桌面），
+      结果就是桌面/任务栏回不来 —— 为了刷新一个托盘图标去冒「把桌面弄没」的风险，
+      完全不值。
+
+      此刻 Explorer 还活着（taskkill 根本没执行），所以什么都不会丢；
+      只是陈旧的托盘图标要等到下次登录才会刷新。
+
+      安装程序会自己请求管理员权限（PrivilegesRequired=admin），
+      所以正确用法是**双击**运行。 }
+    Log('拿不到原始用户凭据（多半是用「以管理员身份运行」启动的），' +
+        '为安全起见跳过重启 Explorer；托盘图标会在下次登录时自动刷新');
     Exit;
   end;
   Log('已请求重启 Explorer 以刷新托盘图标');
@@ -610,6 +678,8 @@ begin
 end;
 
 function InitializeSetup(): Boolean;
+var
+  Sz: Integer;
 begin
   Result := True;
 #ifdef HaveMsi
@@ -628,12 +698,52 @@ begin
     Result := False;
   end;
 #endif
+
+  { ===== 版本一致性预检：必须发生在**任何文件被改动之前** =====
+
+    汉化补丁依赖 1.104.1 的精确文件偏移，对其它版本的 tailscale-ipn.exe 替换
+    必然失败或让程序直接起不来。这个判断要尽可能早做：
+
+      · 放在 CurStepChanged(ssPostInstall) 里做（以前就是这样）有两处不好 ——
+        那时文件已经复制了，中止要走 RaiseException，Inno 会**回滚**并弹框；
+        而 RaiseException 的错误框在 /SUPPRESSMSGBOXES 下并不会被立刻抑制
+        （实测要等约两分钟才自动按掉），企业无人值守部署会被卡住。
+      · 放在 InitializeSetup 里，返回 False 就是**干净的静默中止** ——
+        什么都没装、什么都没改，也不需要回滚。
+
+    判定条件刻意加了 TsServiceInstalled()：
+      - 官方组件已就位 ⇒ 本次装机不会去装官方组件（EnsureOfficial 会直接跳过），
+        现存那份界面程序的版本会**原样**留到最后，所以现在就得拦；
+      - 官方组件缺失 ⇒ 我们本来就会用随包 MSI 装成 1.104.1，届时不匹配的那个
+        残留文件会被盖掉，现在拦反而是误伤。
+
+    注意 CurStepChanged 里那道检查**保留**：它在这里退化成最后一道兜底闸门，
+    万一将来加了「不装官方组件」的路径，仍然拦得住。 }
+  if TsServiceInstalled() and FileExists(TsExe()) then
+  begin
+    if not FileSize(TsExe(), Sz) then
+      Sz := -1;
+    if (Sz > 0) and (Sz <> EXPECT_SIZE) then
+    begin
+      Log('!! 预检不通过：已安装 ' + EXE_NAME + ' 为 ' + IntToStr(Sz) + ' 字节，与本汉化包对应的官方 ' +
+          IntToStr(EXPECT_SIZE) + ' 字节不一致，在改动任何文件之前中止');
+      SuppressibleMsgBox('本机已安装的 ' + EXE_NAME + ' 是 ' + IntToStr(Sz) + ' 字节，' + #13#10 +
+                '不是本汉化包支持的官方 {#MyTsVersion}（' + IntToStr(EXPECT_SIZE) + ' 字节）。' + #13#10 + #13#10 +
+                '汉化补丁按该版本的精确文件偏移生成，对其它版本强行替换会失败，' + #13#10 +
+                '或者让 Tailscale 直接无法启动，因此已中止安装（没有改动任何文件）。' + #13#10 + #13#10 +
+                '请先在「设置 → 应用」中卸载现有的 Tailscale，' + #13#10 +
+                '再运行本安装包（本包自带官方组件，会一并装好）。',
+                mbCriticalError, MB_OK, IDOK);
+      Result := False;
+    end;
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Base, Bak, NewExe: String;
   Sz, N: Integer;
+  TrayWasRunning: Boolean;
 begin
   if CurStep <> ssPostInstall then
     Exit;
@@ -653,11 +763,15 @@ begin
   end;
 #endif
 
-  { 版本一致性检查。汉化补丁依赖 1.104.1 的精确文件偏移，只对这个版本有效。
+  { 版本一致性检查（**兜底**）。汉化补丁依赖 1.104.1 的精确文件偏移，只对这个版本有效。
+
+    真正的预检已经前移到 InitializeSetup（那里能在改动任何文件之前干净中止，
+    详见那段注释）；这里保留一道，是因为此刻的 tailscale-ipn.exe 才是
+    「即将被替换掉的那一份」—— EnsureOfficial 可能刚刚才把它写成 1.104.1。
 
     以前这里是「弹框让用户选要不要继续」—— 那等于把「必然出问题」包装成一个选项：
     替换后界面程序与服务端版本不匹配，轻则功能异常，重则启动即崩。
-    现在改成**直接中止**，并明确告诉用户该怎么做。 }
+    改成**直接中止**，并明确告诉用户该怎么做。 }
   if FileExists(Base) then
   begin
     if not FileSize(Base, Sz) then
@@ -677,7 +791,14 @@ begin
     end;
   end;
 
-  KillTray();
+  { 记下「安装前托盘本来就在跑」—— 装完要按这个决定是否把它拉回来。
+    静默安装下这个信息尤其重要：不记录的话，用户的托盘图标会被杀掉之后
+    一直缺到下次登录。 }
+  TrayWasRunning := KillTray();
+  if TrayWasRunning then
+    Log('安装前 ' + EXE_NAME + ' 正在运行，装完会重新拉起')
+  else
+    Log('安装前 ' + EXE_NAME + ' 未在运行');
 
   { 只备份一次：保留最初那份官方原版，避免二次安装把汉化版当成「原版」备份。
 
@@ -757,30 +878,43 @@ begin
   N := PurgeStaleTrayIconCache();
   if N > 0 then
   begin
-    Log('共清除 ' + IntToStr(N) + ' 条陈旧托盘图标登记，重启 Explorer 使其立即生效');
-
-    { 重启 Explorer 之前先把 GUI 请下去。Explorer 启动时会给所有顶层窗口广播
-      TaskbarCreated，活着的 GUI 收到后会重新 Shell_NotifyIcon(NIM_ADD)；
-      要是那一刻新任务栏的通知区域还没就绪，它同样会 error 87 并 panic。
-      实测 tailscaled **不会**自动把 GUI 拉回来（连杀 12 秒无新进程），
-      所以杀干净之后直到我们主动拉起之前，这段窗口期是安全的。 }
-    KillTray();
-
-    RestartExplorerAsUser();
-    { ★ 必须等任务栏重建完再拉托盘。
-      否则 GUI 的 populateTray -> Shell_NotifyIconW 会失败（error 87）
-      并 panic 弹框 —— 这正是 2026-10-11 那次「又报错」的根因。 }
-    if not WaitForShellReady(30000) then
+    { 静默安装（/SILENT、/VERYSILENT，企业无人值守部署）下**不**重启 Explorer。
+      掀掉别人的桌面属于侵入式操作，而且没人坐在屏幕前看结果；而登记项已经清掉了，
+      Explorer 下次自然重启（注销 / 重启）时会重新写入一份正确的快照。
+      非静默（用户双击）才立刻重启，让新图标当场生效。 }
+    if WizardSilent() then
+      Log('静默安装：已清除 ' + IntToStr(N) +
+          ' 条陈旧托盘图标登记，按约定不重启 Explorer（下次登录自动生效）')
+    else
     begin
-      Log('任务栏长时间未出现，再主动拉起一次 Explorer 后重试');
+      Log('共清除 ' + IntToStr(N) + ' 条陈旧托盘图标登记，重启 Explorer 使其立即生效');
+
+      { 重启 Explorer 之前先把 GUI 请下去。Explorer 启动时会给所有顶层窗口广播
+        TaskbarCreated，活着的 GUI 收到后会重新 Shell_NotifyIcon(NIM_ADD)；
+        要是那一刻新任务栏的通知区域还没就绪，它同样会 error 87 并 panic。
+        实测 tailscaled **不会**自动把 GUI 拉回来（连杀 12 秒无新进程），
+        所以杀干净之后直到我们主动拉起之前，这段窗口期是安全的。 }
+      KillTray();
+
       RestartExplorerAsUser();
-      WaitForShellReady(30000);
+      { ★ 必须等任务栏重建完再拉托盘。
+        否则 GUI 的 populateTray -> Shell_NotifyIconW 会失败（error 87）
+        并 panic 弹框 —— 这正是 2026-10-11 那次「又报错」的根因。 }
+      if not WaitForShellReady(30000) then
+      begin
+        Log('任务栏长时间未出现，再主动拉起一次 Explorer 后重试');
+        RestartExplorerAsUser();
+        WaitForShellReady(30000);
+      end;
     end;
   end
   else
     Log('未发现陈旧托盘图标登记，无需重启 Explorer');
 
-  StartTrayAsUser();
+  { 顺带说明：PurgeStaleTrayIconCache 清掉了登记项、却没重启 Explorer 时，
+    当前这份 Explorer 内存里仍是旧快照，显示上不会有变化 —— 这没问题，
+    它下次启动就会重新提取。真正必须保证的是「别在任务栏空窗期里启动 GUI」。 }
+  StartTrayAsUser(TrayWasRunning);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
