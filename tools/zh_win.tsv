@@ -139,3 +139,30 @@ The Tailscale service not installed on this machine	本机未安装 Tailscale �
 The Tailscale service is stopped	Tailscale 服务已停止
 Failed connecting to the Tailscale service to query its state	无法连接 Tailscale 服务，无法获取其状态
 Failed connecting to the Tailscale service	无法连接 Tailscale 服务
+
+# ---- 第七批：全新安装 / 未登录时的引导页（onboarding）与登录页 ----
+# 2026-10-11 用户实测反馈：卸载后重装，界面停在 "Join your network" 引导页，
+# 这一整块此前没有被收录（对照表只覆盖了托盘菜单 + 状态提示 + 会话）——
+# 现象就是"托盘菜单是中文，但一打开主界面全是英文"。
+# 这批全部控制在原文字节数以内，走保长替换，不占用 .rsrc 尾部扩容区。
+#
+# 注意：引导页文案旁边紧挨着一批**内部标识符**，绝对不能翻译 ——
+#   JOIN_NETWORK.SIGN_UP / JOIN_NETWORK.SIGN_IN / GET_STARTED
+#   CONNECTED_NON_ADMIN / CONNECTED_ADMIN / OPEN_ADMIN_CONSOLE
+#   SystemUsesLightTheme / toggleExitNode / close of synctest channel ...
+# 它们在 .rdata 里和显示文本首尾相连（Go 字符串池不带 \0 终止符），
+# 翻译它们会被当成逻辑键使用而崩溃。
+Join your network	加入网络
+Connect this device to your Tailscale network	将此设备连接至你的 Tailscale 网络
+Sign in to your network	登录你的网络
+Welcome to Tailscale	欢迎使用
+Get Started	开始
+Waiting for approval	等待批准
+Open admin console	管理控制台
+Open local settings	打开本机设置
+Device rejected	设备被拒绝
+A tailnet administrator needs to approve this device from the admin console.	网络管理员需要在管理控制台中批准此设备。
+This device was rejected and cannot be added to the tailnet. Contact your tailnet administrator.	此设备已被拒绝，无法加入网络。请联系你的网络管理员。
+Now that you're connected, you can manage your settings from the taskbar and find other tailnet devices.	现在你已连接，可以从任务栏管理设置，并找到其他网络设备。
+Tailscale makes it easy to securely connect\nall your team's devices together in minutes.	Tailscale 让你在几分钟内安全地连接团队所有设备。
+Don't have an account? <a href="https://login.tailscale.com/start">Sign up</a>	还没有账号？<a href="https://login.tailscale.com/start">注册</a>

@@ -16,6 +16,15 @@
 >   格式无效）。现已把替换改为**全程原子 rename**：`tailscale-ipn.exe` 任何时刻要么是完整的旧版、
 >   要么是完整的新版，**绝不会出现半成品**；替换后还会校验文件大小，一旦不对就自动回滚官方原版
 >   并明确报错，不会再让你拿到一个连启动都失败的主程序。
+> - **补全「引导页 / 登录页」整块汉化（界面仍有英文）**：卸载后重装或首次登录时，主界面会停在
+>   `Join your network` 引导页，而这一屏此前**完全没有被收录**进汉化对照表 —— 表现就是
+>   「托盘右键菜单是中文，一打开主界面全是英文」。本次补上 14 条：
+>   `Join your network` → 加入网络、`Connect this device to your Tailscale network`、
+>   `Welcome to Tailscale` → 欢迎使用、`Get Started` → 开始、`Sign in to your network` → 登录你的网络、
+>   `Waiting for approval` → 等待批准、`Open admin console` → 管理控制台、
+>   `Open local settings` → 打开本机设置、`Device rejected` → 设备被拒绝，以及
+>   「等待管理员批准 / 设备被拒绝 / 已连接后的提示 / 团队连接说明 / 没有账号？注册」这几段整句。
+>   汉化条目 126 → **140**。
 > - **修复「装完无法登录」**：此前安装器用「界面程序 `tailscale-ipn.exe` 是否存在」判断
 >   「官方组件是否已装」，而汉化包自己就会放这个文件 —— 一旦官方组件被单独卸载过
 >   （服务与 `tailscaled.exe` 没了、界面程序还在），再装就会被误判成「已装好」从而
