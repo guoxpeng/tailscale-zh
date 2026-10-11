@@ -101,6 +101,10 @@ const
   NEW_NAME = '{#ExeName}.new';
   MSI_NAME = '{#MsiName}';
   EXPECT_SIZE = 29622776;
+  { 本汉化包自己的注册表落脚点（只用来记「临时隐藏了官方哪条卸载项」） }
+  OUR_REG_KEY = 'SOFTWARE\TailscaleZh';
+  { 「设置 → 应用」里所有已安装程序的登记处 }
+  UNINST_ROOT = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall';
 
 function TsDir(): String;
 begin
@@ -152,6 +156,14 @@ procedure StartTrayAsUser();
 var
   Rc: Integer;
 begin
+  { 静默安装（/SILENT、/VERYSILENT，企业批量部署的常规用法）时不要把界面弹出来 ——
+    部署脚本跑到一半突然冒出一个托盘程序，既没人在桌面前确认，也容易和后续
+    自动化步骤抢文件。非静默（用户双击）时才自动启动。 }
+  if WizardSilent() then
+  begin
+    Log('静默安装：按约定跳过自动启动托盘程序');
+    Exit;
+  end;
   if not FileExists(TsExe()) then
     Exit;
   if ExecAsOriginalUser(TsExe(), '', TsDir(), SW_SHOWNORMAL, ewNoWait, Rc) then
@@ -285,6 +297,96 @@ begin
     Log('警告: 写入 GUIPath 失败（不影响主程序汉化）');
 end;
 
+{ ===== 把官方 MSI 的「设置 → 应用」条目藏起来，只留本汉化包一条 =====
+
+  【为什么要做】
+  本安装包会在目标机上静默装好官方 Tailscale 组件（见 EnsureOfficial）。
+  官方 MSI 会往
+      HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ + ProductCode
+  登记一条 DisplayName = 'Tailscale' 的卸载项；本汉化包自己又会在同一位置
+  登记一条 'Tailscale 中文汉化'。于是「设置 → 应用」里出现**两条 Tailscale**，
+  用户不知道该卸哪一个 —— 卸官方的会把汉化文件一起删掉，卸汉化的又要跑一遍
+  Explorer 重启。两条并存纯属噪音。
+
+  【做法】
+  给官方那条写 SystemComponent = 1。Windows 的「应用和功能」会跳过带这个值的
+  条目（它本来是给「系统组件」用的隐藏开关），而条目本身完好地留在注册表里，
+  官方 MSI 的卸载 / 修复 / 升级能力一点没少，只是不在列表里露脸。
+  具体藏的是哪一条记进我们自己的键，卸载本包时原样恢复。
+
+  【不误伤的保证】
+  只认「DisplayName 恰好等于 Tailscale」且「Publisher 含 Tailscale Inc」的条目。
+  本汉化包的条目叫 'Tailscale 中文汉化'、发布者是 guoxpeng，两个条件都命中不了。
+
+  【失败也不影响安装】
+  写不进去（例如安装程序没拿到管理员权限）只记日志；官方条目继续显示，
+  最坏结果只是「又多了一条」，绝不会让安装失败。 }
+function HideOfficialUninstallEntry(): Integer;
+var
+  Names: TArrayOfString;
+  Sub, DN, Pub: String;
+  I: Integer;
+  Cur: Cardinal;
+begin
+  Result := 0;
+  if not RegGetSubkeyNames(HKEY_LOCAL_MACHINE, UNINST_ROOT, Names) then
+  begin
+    Log('无法枚举 ' + UNINST_ROOT + '，跳过官方卸载条目的隐藏');
+    Exit;
+  end;
+  for I := 0 to GetArrayLength(Names) - 1 do
+  begin
+    Sub := UNINST_ROOT + '\' + Names[I];
+    { 逐级嵌套而不是用 and 串起来：Inno Pascal 的 and 不短路，
+      串起来会对**每一个**子键都白读一遍 Publisher。 }
+    if RegQueryStringValue(HKEY_LOCAL_MACHINE, Sub, 'DisplayName', DN) then
+      if DN = 'Tailscale' then
+        if RegQueryStringValue(HKEY_LOCAL_MACHINE, Sub, 'Publisher', Pub) then
+          if Pos('Tailscale Inc', Pub) > 0 then
+          begin
+            { 幂等：已经是隐藏状态就什么都不做 }
+            if RegQueryDWordValue(HKEY_LOCAL_MACHINE, Sub,
+                                  'SystemComponent', Cur) and (Cur = 1) then
+            begin
+              Log('官方卸载条目已是隐藏状态，保持不变: ' + Names[I]);
+              Exit;
+            end;
+            if RegWriteDWordValue(HKEY_LOCAL_MACHINE, Sub, 'SystemComponent', 1) then
+            begin
+              RegWriteStringValue(HKEY_LOCAL_MACHINE, OUR_REG_KEY,
+                                  'HiddenUninstall', Names[I]);
+              Log('已隐藏官方卸载条目（「设置 → 应用」里不再重复出现）: ' + Names[I]);
+              Result := 1;
+            end
+            else
+              Log('隐藏官方卸载条目失败（不影响安装，只是列表里会多一条）: ' + Names[I]);
+            Exit;   { 一个产品只会有一条，找到就收工 }
+          end;
+  end;
+  Log('未找到官方 Tailscale 卸载条目（未安装或已被处理过）');
+end;
+
+{ 卸载本包时把官方条目恢复显示 —— 卸完以后机器上只剩官方 Tailscale，
+  「设置 → 应用」里必须能看见它、而且能正常卸载。 }
+procedure RestoreOfficialUninstallEntry();
+var
+  Name, Sub: String;
+begin
+  if not RegQueryStringValue(HKEY_LOCAL_MACHINE, OUR_REG_KEY,
+                             'HiddenUninstall', Name) then
+  begin
+    Log('没有藏着官方卸载条目，无需恢复');
+    Exit;
+  end;
+  Sub := UNINST_ROOT + '\' + Name;
+  if RegDeleteValue(HKEY_LOCAL_MACHINE, Sub, 'SystemComponent') then
+    Log('已恢复官方卸载条目在「设置 → 应用」中的显示: ' + Name)
+  else
+    Log('恢复官方卸载条目失败（该产品可能已被单独卸载）: ' + Name);
+  RegDeleteValue(HKEY_LOCAL_MACHINE, OUR_REG_KEY, 'HiddenUninstall');
+  RegDeleteKeyIfEmpty(HKEY_LOCAL_MACHINE, OUR_REG_KEY);
+end;
+
 // 清理 Windows 11 通知区域里**陈旧**的托盘图标缓存。
 //
 // 【现象】把汉化版原地覆盖到 tailscale-ipn.exe 之后，任务栏上的 Tailscale 图标
@@ -313,7 +415,13 @@ var
 begin
   Result := 0;
   Root := 'Control Panel\NotifyIconSettings';
-  Want := LowerCase(TsDir() + '\' + EXE_NAME);
+  { 注意不能拿「TsDir() + '\' + EXE_NAME」直接比 —— Explorer 存进
+    ExecutablePath 的往往不是 C:\Program Files\... 这种展开形式，而是
+    6D809377-... 这类「已知文件夹 GUID」前缀 + \Tailscale\tailscale-ipn.exe，
+    字符串相等判断会整个失效。改成看**路径尾部**，两种写法都能命中。
+    （写注释时别把那个 GUID 原样套上花括号：Inno 的块注释遇到第一个右花括号
+      就结束，后面整段会变成代码。） }
+  Want := LowerCase('\Tailscale\' + EXE_NAME);
   if not RegGetSubkeyNames(HKEY_CURRENT_USER, Root, Names) then
   begin
     Log('未找到 HKCU\' + Root + '，跳过托盘图标缓存清理');
@@ -327,7 +435,7 @@ begin
       2) 文件名同名但该文件**已不存在**的残留（例如曾从别的目录临时跑过一份）。
       别的程序一概不碰。 }
     if RegQueryStringValue(HKEY_CURRENT_USER, Sub, 'ExecutablePath', Val) then
-      if (LowerCase(Val) = Want) or
+      if (Pos(Want, LowerCase(Val)) > 0) or
          ((Pos(LowerCase(EXE_NAME), LowerCase(Val)) > 0) and (not FileExists(Val))) then
       begin
         if RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, Sub) then
@@ -348,17 +456,47 @@ end;
   只有在真的清掉了陈旧条目时才调用，避免打扰干净机器。
 
   【务必配合 WaitForShellReady 使用】重启之后任务栏要几秒才重建，
-  这期间绝不能再拉起 Tailscale（见 WaitForShellReady 的注释）。 }
+  这期间绝不能再拉起 Tailscale（见 WaitForShellReady 的注释）。
+
+  【为什么 taskkill 和 start 之间要插一段 ping】
+  命令行里那条 ping 只是拿来当 sleep 用（ping 一定存在，timeout.exe 在无交互
+  会话里会直接报错退出）。它的作用是等旧 Explorer **真正退干净**再拉新的：
+  Explorer 是单实例进程，上一个还在收尾时启动的这一个会立刻自杀，
+  结果就是桌面彻底回不来（只剩壁纸）。实测不加这 2 秒有概率踩到。 }
 procedure RestartExplorerAsUser();
 var
-  Rc: Integer;
+  Rc, I: Integer;
 begin
-  if ExecAsOriginalUser(ExpandConstant('{cmd}'),
-       '/c taskkill /f /im explorer.exe >nul 2>nul & start "" explorer.exe', '',
+  if not ExecAsOriginalUser(ExpandConstant('{cmd}'),
+       '/c taskkill /f /im explorer.exe >nul 2>nul' +
+       ' & ping -n 3 127.0.0.1 >nul' +
+       ' & start "" explorer.exe', '',
        SW_HIDE, ewNoWait, Rc) then
-    Log('已请求重启 Explorer 以刷新托盘图标')
-  else
+  begin
     Log('重启 Explorer 失败；托盘图标可能要到下次登录才会更新');
+    Exit;
+  end;
+  Log('已请求重启 Explorer 以刷新托盘图标');
+
+  { ★★ 这一步是 r8 才补上的关键：先确认**旧**任务栏已经消失，再收工。
+
+     不这么做的话，调用方紧接着的 WaitForShellReady 一开始轮询就会看到
+     「Shell_TrayWnd 还在」—— 那其实是**旧的**任务栏，于是它立刻判定
+     「已就绪」并返回，接着安装器就拉起 Tailscale；而此时 cmd 才刚把
+     taskkill 落到实处，任务栏进入空窗期，Shell_NotifyIconW 返回 error 87，
+     GUI 直接 panic 弹框。这正是 r7 修了却仍然会复现的那条路径。
+     （ExecAsOriginalUser 是异步启动，函数返回时 taskkill 往往还没跑。）
+     这里最多给 10 秒等旧任务栏消失。 }
+  for I := 1 to 40 do
+  begin
+    if FindWindowByClassName('Shell_TrayWnd') = 0 then
+    begin
+      Log('旧任务栏已消失（等待 ' + IntToStr(I * 250) + ' 毫秒）');
+      Exit;
+    end;
+    Sleep(250);
+  end;
+  Log('旧任务栏 10 秒内仍未消失，Explorer 可能没有被成功结束');
 end;
 
 { 等任务栏（Shell_TrayWnd）真正重建完成。
@@ -436,8 +574,10 @@ begin
   else
     Log('msiexec 启动失败');
 
-  { MSI 装完后文件可能还要片刻才落盘，最多等 30 秒 }
-  for I := 1 to 30 do
+  { MSI 装完后文件可能还要片刻才落盘。首次安装还要顺带把 WinTun 驱动装上，
+    比升级慢得多，所以等待窗口给到 60 秒（以前 30 秒在慢机器/冷启动上不够，
+    会被误判成「官方组件没装上」而整包中止）。 }
+  for I := 1 to 60 do
   begin
     if TsServiceInstalled() then
       Break;
@@ -456,7 +596,7 @@ begin
       Log('强制重装 msiexec 返回码 ' + IntToStr(Rc))
     else
       Log('强制重装 msiexec 启动失败');
-    for I := 1 to 30 do
+    for I := 1 to 60 do
     begin
       if TsServiceInstalled() then
         Break;
@@ -479,12 +619,12 @@ begin
   { 无内嵌 MSI 的降级版：要求目标机已经装好**完整**的官方组件（含服务） }
   if not TsServiceInstalled() then
   begin
-    MsgBox('未检测到完整安装的 Tailscale（服务或 tailscaled.exe 缺失）。' + #13#10 + #13#10 +
+    SuppressibleMsgBox('未检测到完整安装的 Tailscale（服务或 tailscaled.exe 缺失）。' + #13#10 + #13#10 +
            '缺少:' + #13#10 +
            '  · 服务 Tailscale' + #13#10 +
            '  · ' + TsDir() + '\tailscaled.exe' + #13#10 + #13#10 +
            '请先安装官方 Tailscale {#MyTsVersion}（x64），再运行本汉化安装包。',
-           mbCriticalError, MB_OK);
+           mbCriticalError, MB_OK, IDOK);
     Result := False;
   end;
 #endif
@@ -506,50 +646,60 @@ begin
   { 干净机器：先把完整的官方组件静默装好，再打汉化补丁 }
   if not EnsureOfficial() then
   begin
-    MsgBox('未能安装 Tailscale 官方组件（服务或 tailscaled.exe 未就位），安装中止。' + #13#10 + #13#10 +
+    SuppressibleMsgBox('未能安装 Tailscale 官方组件（服务或 tailscaled.exe 未就位），安装中止。' + #13#10 + #13#10 +
            '请检查网络连接，或先手动安装官方 Tailscale {#MyTsVersion}（x64）后重试。',
-           mbCriticalError, MB_OK);
+           mbCriticalError, MB_OK, IDOK);
     RaiseException('官方组件安装失败');
   end;
 #endif
 
   { 版本一致性检查。汉化补丁依赖 1.104.1 的精确文件偏移，只对这个版本有效。
-    若目标机上装的是别的版本，替换后会出现「界面程序与服务端版本不匹配」，
-    属于用户可选择承担的风险，但必须让他明确知晓后再继续。 }
+
+    以前这里是「弹框让用户选要不要继续」—— 那等于把「必然出问题」包装成一个选项：
+    替换后界面程序与服务端版本不匹配，轻则功能异常，重则启动即崩。
+    现在改成**直接中止**，并明确告诉用户该怎么做。 }
   if FileExists(Base) then
   begin
     if not FileSize(Base, Sz) then
       Sz := -1;
     if (Sz > 0) and (Sz <> EXPECT_SIZE) then
     begin
-      if MsgBox('检测到已安装的 ' + EXE_NAME + ' 为 ' + IntToStr(Sz) + ' 字节，' + #13#10 +
-                '与本汉化包对应的官方 {#MyTsVersion}（' + IntToStr(EXPECT_SIZE) + ' 字节）不一致。' + #13#10 + #13#10 +
-                '继续安装可能造成界面程序与服务端版本不匹配，建议先升级/降级到官方 {#MyTsVersion}。' + #13#10 + #13#10 +
-                '是否仍要继续安装？',
-                mbConfirmation, MB_YESNO) <> IDYES then
-        RaiseException('用户取消：已安装版本与本汉化包不一致');
-      Log('警告：已安装 ' + EXE_NAME + ' 为 ' + IntToStr(Sz) + ' 字节，与期望的 ' +
-          IntToStr(EXPECT_SIZE) + ' 不一致，用户选择继续');
+      Log('!! 已安装 ' + EXE_NAME + ' 为 ' + IntToStr(Sz) + ' 字节，与本汉化包对应的官方 ' +
+          IntToStr(EXPECT_SIZE) + ' 字节不一致，中止安装');
+      SuppressibleMsgBox('本机已安装的 ' + EXE_NAME + ' 是 ' + IntToStr(Sz) + ' 字节，' + #13#10 +
+                '不是本汉化包支持的官方 {#MyTsVersion}（' + IntToStr(EXPECT_SIZE) + ' 字节）。' + #13#10 + #13#10 +
+                '汉化补丁按该版本的精确文件偏移生成，对其它版本强行替换会失败，' + #13#10 +
+                '或者让 Tailscale 直接无法启动，因此已中止安装。' + #13#10 + #13#10 +
+                '请先在「设置 → 应用」中卸载现有的 Tailscale，' + #13#10 +
+                '再运行本安装包（本包自带官方组件，会一并装好）。',
+                mbCriticalError, MB_OK, IDOK);
+      RaiseException('已安装的 Tailscale 版本与本汉化包不一致');
     end;
   end;
 
   KillTray();
 
-  { 只备份一次：保留最初那份官方原版，避免二次安装把汉化版当成「原版」备份 }
-  if not FileExists(Bak) then
+  { 只备份一次：保留最初那份官方原版，避免二次安装把汉化版当成「原版」备份。
+
+    注意 Base 可能**本来就不存在** —— 服务与 tailscaled.exe 都在、唯独界面程序
+    被删掉的残缺安装就是这种状态。此时没有东西可备份，直接往下走交给
+    ReplaceExe 就位即可，不能因为「备份失败」把整个安装中止掉。 }
+  if FileExists(Base) and (not FileExists(Bak)) then
   begin
     if not CopyFile(Base, Bak, False) then
     begin
-      MsgBox('备份原版 tailscale-ipn.exe 失败，安装中止。' + #13#10 +
-             '请确认以管理员身份运行安装程序。', mbCriticalError, MB_OK);
+      SuppressibleMsgBox('备份原版 ' + EXE_NAME + ' 失败，安装中止。' + #13#10 +
+             '请确认以管理员身份运行安装程序。', mbCriticalError, MB_OK, IDOK);
       RaiseException('备份原版失败');
     end;
     Log('已备份原版 -> ' + Bak);
-  end;
+  end
+  else if not FileExists(Base) then
+    Log('注意：' + Base + ' 当前不存在（组件残缺），无需备份，将由 ReplaceExe 直接就位');
 
   if not FileExists(NewExe) then
   begin
-    MsgBox('安装载荷缺失（' + NEW_NAME + '），安装中止。', mbCriticalError, MB_OK);
+    SuppressibleMsgBox('安装载荷缺失（' + NEW_NAME + '），安装中止。', mbCriticalError, MB_OK, IDOK);
     RaiseException('缺少载荷文件');
   end;
 
@@ -559,9 +709,9 @@ begin
       此时把备份还原回去，至少保证 Tailscale 仍可用。 }
     if FileExists(Bak) and RenameFile(Bak, Base) then
       Log('替换失败，已自动还原官方原版 -> ' + Base);
-    MsgBox('写入汉化版 tailscale-ipn.exe 失败。' + #13#10 +
+    SuppressibleMsgBox('写入汉化版 tailscale-ipn.exe 失败。' + #13#10 +
            '请手动退出 Tailscale 托盘程序后再试，或以管理员身份运行安装程序。',
-           mbCriticalError, MB_OK);
+           mbCriticalError, MB_OK, IDOK);
     RaiseException('替换失败');
   end;
 
@@ -587,16 +737,20 @@ begin
       else
         Log('回滚失败：请手动把 ' + Bak + ' 改名为 ' + Base);
     end;
-    MsgBox('汉化版写入后校验未通过（文件大小 ' + IntToStr(Sz) + ' 字节，预期 ' +
+    SuppressibleMsgBox('汉化版写入后校验未通过（文件大小 ' + IntToStr(Sz) + ' 字节，预期 ' +
            IntToStr(EXPECT_SIZE) + ' 字节）。' + #13#10 + #13#10 +
            '安装程序已自动还原官方原版，Tailscale 仍可正常使用。' + #13#10 +
            '请确认没有其它程序正在占用 Tailscale 后重新运行本安装包。',
-           mbCriticalError, MB_OK);
+           mbCriticalError, MB_OK, IDOK);
     RaiseException('替换后文件校验失败');
   end;
   Log('汉化版已写入 ' + Base + '（' + IntToStr(Sz) + ' 字节）');
 
   EnsureGuiPath();
+
+  { 汉化已经落地，这时才把官方 MSI 在「设置 → 应用」里的那条藏起来 ——
+    让列表里只留本汉化包一条。做失败也只是多显示一条，不影响安装。 }
+  HideOfficialUninstallEntry();
 
   { 图标修复：清掉原地替换 exe 后 Explorer 残留的陈旧托盘图标快照。
     必须在替换完成之后做；真的清掉了才重启 Explorer，让它立即生效。 }
@@ -604,6 +758,14 @@ begin
   if N > 0 then
   begin
     Log('共清除 ' + IntToStr(N) + ' 条陈旧托盘图标登记，重启 Explorer 使其立即生效');
+
+    { 重启 Explorer 之前先把 GUI 请下去。Explorer 启动时会给所有顶层窗口广播
+      TaskbarCreated，活着的 GUI 收到后会重新 Shell_NotifyIcon(NIM_ADD)；
+      要是那一刻新任务栏的通知区域还没就绪，它同样会 error 87 并 panic。
+      实测 tailscaled **不会**自动把 GUI 拉回来（连杀 12 秒无新进程），
+      所以杀干净之后直到我们主动拉起之前，这段窗口期是安全的。 }
+    KillTray();
+
     RestartExplorerAsUser();
     { ★ 必须等任务栏重建完再拉托盘。
       否则 GUI 的 populateTray -> Shell_NotifyIconW 会失败（error 87）
@@ -630,6 +792,11 @@ begin
 
   Base := TsExe();
   Bak  := TsDir() + '\' + BAK_NAME;
+
+  { 无论后面的还原成不成功，官方卸载条目都必须先恢复显示 ——
+    否则用户卸掉汉化包以后，在「设置 → 应用」里根本找不到 Tailscale 了。 }
+  RestoreOfficialUninstallEntry();
+
   if not FileExists(Bak) then
   begin
     Log('未找到备份 ' + Bak + '，跳过还原');
@@ -653,8 +820,8 @@ begin
     else
     begin
       RenameFile(Tmp, Base);   { 回滚，别把主程序弄丢 }
-      MsgBox('还原官方 ' + EXE_NAME + ' 失败。' + #13#10 +
-             '请手动把 ' + Bak + ' 改名为 ' + Base + '。', mbError, MB_OK);
+      SuppressibleMsgBox('还原官方 ' + EXE_NAME + ' 失败。' + #13#10 +
+             '请手动把 ' + Bak + ' 改名为 ' + Base + '。', mbError, MB_OK, IDOK);
     end;
   end
   else if not FileExists(Base) then
@@ -662,13 +829,13 @@ begin
     if RenameFile(Bak, Base) then
       Log('已还原官方 ' + EXE_NAME)
     else
-      MsgBox('还原官方 ' + EXE_NAME + ' 失败。' + #13#10 +
-             '请手动把 ' + Bak + ' 改名为 ' + Base + '。', mbError, MB_OK);
+      SuppressibleMsgBox('还原官方 ' + EXE_NAME + ' 失败。' + #13#10 +
+             '请手动把 ' + Bak + ' 改名为 ' + Base + '。', mbError, MB_OK, IDOK);
   end
   else
-    MsgBox(EXE_NAME + ' 仍在运行，无法替换回官方版本。' + #13#10 +
+    SuppressibleMsgBox(EXE_NAME + ' 仍在运行，无法替换回官方版本。' + #13#10 +
            '请先退出 Tailscale 托盘程序，再手动把 ' + Bak + ' 改名为 ' + Base + '。',
-           mbError, MB_OK);
+           mbError, MB_OK, IDOK);
 
   { 这里刻意**不**再拉起托盘程序，原因有两条：
       1) ExecAsOriginalUser 在卸载阶段会抛致命异常
