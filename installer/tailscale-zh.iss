@@ -124,6 +124,17 @@ procedure KillTray();
 var
   Rc, I: Integer;
 begin
+  { 先「温和」请它退出：taskkill 不带 /F 会向窗口发 WM_CLOSE。
+    GUI 走正常退出流程时才会调用 Shell_NotifyIcon(NIM_DELETE)，
+    把自己在通知区域里的图标注销掉。这一步别省 ——
+    强杀（/F）会让 Explorer 侧留下一个「登记着但没人管」的图标，
+    之后新拉起的 GUI 再去注册时容易撞上参数校验失败（error 87）。 }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM ' + EXE_NAME, '',
+       SW_HIDE, ewWaitUntilTerminated, Rc);
+  Sleep(1200);
+
+  { 没响应 WM_CLOSE（或压根没在跑）就强杀；连杀 3 次是因为
+    tailscaled 服务会在 GUI 消失后又把它拉起来。 }
   for I := 1 to 3 do
   begin
     Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM ' + EXE_NAME, '',
@@ -296,12 +307,13 @@ end;
 // 【为什么不误伤干净机器】只有真的删到了条目才返回 >0，调用方才重启 Explorer。
 function PurgeStaleTrayIconCache(): Integer;
 var
-  Root, Sub, Val: String;
+  Root, Sub, Val, Want: String;
   Names: TArrayOfString;
   I: Integer;
 begin
   Result := 0;
   Root := 'Control Panel\NotifyIconSettings';
+  Want := LowerCase(TsDir() + '\' + EXE_NAME);
   if not RegGetSubkeyNames(HKEY_CURRENT_USER, Root, Names) then
   begin
     Log('未找到 HKCU\' + Root + '，跳过托盘图标缓存清理');
@@ -310,8 +322,13 @@ begin
   for I := 0 to GetArrayLength(Names) - 1 do
   begin
     Sub := Root + '\' + Names[I];
+    { 只动两种条目：
+      1) 指向**本安装目录**下的 tailscale-ipn.exe —— 它是原地替换 exe 的受害者；
+      2) 文件名同名但该文件**已不存在**的残留（例如曾从别的目录临时跑过一份）。
+      别的程序一概不碰。 }
     if RegQueryStringValue(HKEY_CURRENT_USER, Sub, 'ExecutablePath', Val) then
-      if Pos(LowerCase(EXE_NAME), LowerCase(Val)) > 0 then
+      if (LowerCase(Val) = Want) or
+         ((Pos(LowerCase(EXE_NAME), LowerCase(Val)) > 0) and (not FileExists(Val))) then
       begin
         if RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, Sub) then
         begin
@@ -328,7 +345,10 @@ end;
   必须以「登录用户」身份跑 —— 托盘图标设置是 per-user 的，
   而以管理员身份重启的 Explorer 会和用户会话脱节。
   taskkill 强杀 + start 重新拉起是标准手法，桌面会短暂重绘一次。
-  只有在真的清掉了陈旧条目时才调用，避免打扰干净机器。 }
+  只有在真的清掉了陈旧条目时才调用，避免打扰干净机器。
+
+  【务必配合 WaitForShellReady 使用】重启之后任务栏要几秒才重建，
+  这期间绝不能再拉起 Tailscale（见 WaitForShellReady 的注释）。 }
 procedure RestartExplorerAsUser();
 var
   Rc: Integer;
@@ -339,6 +359,47 @@ begin
     Log('已请求重启 Explorer 以刷新托盘图标')
   else
     Log('重启 Explorer 失败；托盘图标可能要到下次登录才会更新');
+end;
+
+{ 等任务栏（Shell_TrayWnd）真正重建完成。
+
+  ===== 这一段是 2026-10-11「Shell_NotifyIconW error 87」的根因修复 =====
+
+  【故障现象】装完包弹出一个全是堆栈的错误框：
+      Unable to set up Tailscale client:
+      walk.NewNotifyIcon: Shell_NotifyIconW(...) failed: error 87
+      ... ui.(*app).populateTray ...
+
+  【原因】error 87 = ERROR_INVALID_PARAMETER。Shell_NotifyIconW 内部要先找到
+  Shell_TrayWnd（任务栏）才能把图标加进通知区域，找不到时它返回的正是 87。
+  而本安装包在上一步刚把 Explorer 杀掉重启 —— 任务栏要几百毫秒到几秒才重建。
+  这段空窗期里把 GUI 拉起来，它的 populateTray 必然失败；
+  而 Tailscale 对这一步失败的处理是**直接 panic 弹框**（不是记录日志降级），
+  于是用户看到一个莫名其妙的报错，托盘也没起来。
+
+  【做法】任何「重启 Explorer 之后要拉托盘」的路径，都必须先过这个函数：
+  轮询任务栏窗口，出现后再给 2 秒缓冲（窗口存在 ≠ 通知区域已可用）。
+
+  返回 True 表示确认就绪；False 表示超时（调用方仍可继续，但要记日志）。 }
+function WaitForShellReady(TimeoutMs: Integer): Boolean;
+var
+  Waited: Integer;
+begin
+  Result := False;
+  Waited := 0;
+  while Waited < TimeoutMs do
+  begin
+    if FindWindowByClassName('Shell_TrayWnd') <> 0 then
+    begin
+      Sleep(2000);
+      Log('任务栏已就绪（等待 ' + IntToStr(Waited) + ' 毫秒）');
+      Result := True;
+      Exit;
+    end;
+    Sleep(250);
+    Waited := Waited + 250;
+  end;
+  Log('等待任务栏就绪超时（' + IntToStr(TimeoutMs) + ' 毫秒）');
 end;
 
 { 目标机没装过 Tailscale（或组件残缺）时，用随包的官方 MSI 静默装好完整组件。
@@ -544,7 +605,15 @@ begin
   begin
     Log('共清除 ' + IntToStr(N) + ' 条陈旧托盘图标登记，重启 Explorer 使其立即生效');
     RestartExplorerAsUser();
-    Sleep(2000);   { 等 Explorer 重新起来，再把托盘程序拉起来 }
+    { ★ 必须等任务栏重建完再拉托盘。
+      否则 GUI 的 populateTray -> Shell_NotifyIconW 会失败（error 87）
+      并 panic 弹框 —— 这正是 2026-10-11 那次「又报错」的根因。 }
+    if not WaitForShellReady(30000) then
+    begin
+      Log('任务栏长时间未出现，再主动拉起一次 Explorer 后重试');
+      RestartExplorerAsUser();
+      WaitForShellReady(30000);
+    end;
   end
   else
     Log('未发现陈旧托盘图标登记，无需重启 Explorer');
