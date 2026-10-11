@@ -112,14 +112,24 @@ begin
   Result := TsDir() + '\' + EXE_NAME;
 end;
 
-{ 结束正在运行的托盘 / 主界面程序，否则文件被占用 }
+{ 结束正在运行的托盘 / 主界面程序，否则文件被占用。
+
+  Tailscale 不只自己会跑 tailscale-ipn.exe —— tailscaled 服务在 GUI 消失后
+  还会把它再拉起来（托盘图标需要重新注册时就会）。所以在「准备换文件」这种
+  要求文件完整且可独占的时刻，杀一次不够，要连着确认几次再往下走，
+  否则紧接着的 rename 会因为文件仍在运行而失败。
+
+  taskkill 返回 128 表示「没找到该进程」，属正常，不必理会。 }
 procedure KillTray();
 var
-  Rc: Integer;
+  Rc, I: Integer;
 begin
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM ' + EXE_NAME, '',
-       SW_HIDE, ewWaitUntilTerminated, Rc);
-  Sleep(800);
+  for I := 1 to 3 do
+  begin
+    Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM ' + EXE_NAME, '',
+         SW_HIDE, ewWaitUntilTerminated, Rc);
+    Sleep(600);
+  end;
 end;
 
 { 以「登录用户」身份启动托盘程序（而不是管理员身份）。
@@ -140,30 +150,79 @@ begin
     Log('启动 Tailscale 托盘程序失败，请手动运行 ' + TsExe());
 end;
 
-{ 替换主程序。Tailscale 可能自动把 GUI 拉起来重新占用文件，
-  因此 kill 之后带重试，避免偶发失败。 }
+{ 原子替换主程序：全程只用 rename，绝不出现「半个文件」。
+
+  ===== 这一段是 2026-10-11 那次「安装报错」的根因修复 =====
+
+  【旧实现的致命缺陷】
+    旧代码是 DeleteFile(Base) 失败就退化成
+        CopyFile(NewExe, Base, False)
+    —— 而 CopyFile 的「覆盖」是**先 CreateFile(CREATE_ALWAYS) 把目标截断成
+    0 字节，再逐块写入**。29MB 要写零点几秒，这段时间里
+    C:\Program Files\Tailscale\tailscale-ipn.exe 是一个残缺文件（甚至 0 字节）。
+
+    偏偏 Windows 版 Tailscale 的 GUI 在启动早期会 fork/exec **一遍自己的路径**
+    （tailscale.io/win/ui 里的 populateTray -> newPresenceAwareNotifyIcon ->
+    servicelaunch，用于以提权方式拉起 tailscaled 服务）。一旦撞上这个窗口，
+    就会直接弹框：
+        Unable to set up Tailscale client:
+        fork/exec C:\Program Files\Tailscale\tailscale-ipn.exe:
+        The specified executable is not a valid application for this OS platform.
+    （错误码即 Win32 193 = ERROR_BAD_EXE_FORMAT。）
+
+  【现在的做法】
+    两个 rename 都是同卷内的元数据操作，原子且瞬间完成：
+        旧文件 --rename--> ExeName + '.old'
+        新文件 --rename--> 正式名
+        删除 .old
+    任意时刻 tailscale-ipn.exe 只可能是三种状态之一：
+        完整的旧版 / 完整的新版 / 短暂不存在
+    「短暂不存在」时 exec 报的是「系统找不到指定的文件」而不是「格式无效」，
+    且窗口只有微秒级。半成品文件则**永远不会**出现。
+
+    只有 rename 真替不动（被独占）才重试；重试前重新 KillTray。 }
 function ReplaceExe(const Base, NewExe: String): Boolean;
 var
   I: Integer;
+  Tmp: String;
 begin
   Result := False;
-  for I := 1 to 5 do
+  Tmp := Base + '.old';
+
+  for I := 1 to 8 do
   begin
     KillTray();
-    DeleteFile(Base);
-    if RenameFile(NewExe, Base) then
+    DeleteFile(Tmp);
+
+    if RenameFile(Base, Tmp) then
     begin
-      Result := True;
-      Exit;
-    end;
-    if CopyFile(NewExe, Base, False) then
+      { 旧文件已原子挪走，此刻 Base 不存在 }
+      if RenameFile(NewExe, Base) then
+      begin
+        DeleteFile(Tmp);
+        Log('第 ' + IntToStr(I) + ' 次尝试：原子替换成功');
+        Result := True;
+        Exit;
+      end;
+      { 放不进去 -> 把旧的挪回来，恢复现场，绝不留下半成品 }
+      RenameFile(Tmp, Base);
+      Log('第 ' + IntToStr(I) + ' 次尝试：新文件就位失败，已回滚旧文件');
+    end
+    else if not FileExists(Base) then
     begin
-      DeleteFile(NewExe);
-      Result := True;
-      Exit;
-    end;
-    Log('第 ' + IntToStr(I) + ' 次替换失败（文件可能仍被占用），重试…');
-    Sleep(1000);
+      { 目标本来就不存在（几乎不会发生）：直接把新文件挪进来 }
+      if RenameFile(NewExe, Base) then
+      begin
+        Log('第 ' + IntToStr(I) + ' 次尝试：目标不存在，直接就位成功');
+        Result := True;
+        Exit;
+      end;
+      Log('第 ' + IntToStr(I) + ' 次尝试：目标不存在且就位失败');
+    end
+    else
+      Log('第 ' + IntToStr(I) + ' 次尝试：旧文件仍被占用，重试…');
+
+    Sleep(900);
   end;
 end;
 
@@ -445,14 +504,35 @@ begin
     RaiseException('替换失败');
   end;
 
-  { Inno 的 FileSize 是「var 出参 + Boolean 返回」，不是返回值函数 }
+  { Inno 的 FileSize 是「var 出参 + Boolean 返回」，不是返回值函数。
+    这里是**最后一道闸门**：大小不对说明落地的不是完整的汉化版
+    （0 字节 / 被截断 / 被别的进程写坏）。绝不能让用户在这种状态下继续 ——
+    主程序一旦残缺，Tailscale 连启动都会失败（见 ReplaceExe 的注释）。
+    因此校验不过就立刻把官方原版还原回去，至少保证 Tailscale 仍然可用。 }
   if not FileSize(Base, Sz) then
   begin
     Sz := -1;
     Log('警告: 读取 ' + Base + ' 大小失败');
   end;
   if Sz <> EXPECT_SIZE then
-    Log('警告: 安装后文件大小 ' + IntToStr(Sz) + '，预期 ' + IntToStr(EXPECT_SIZE));
+  begin
+    Log('!! 安装后文件大小异常：' + IntToStr(Sz) + ' 字节，预期 ' +
+        IntToStr(EXPECT_SIZE) + ' 字节，回滚官方原版');
+    if FileExists(Bak) then
+    begin
+      DeleteFile(Base);
+      if RenameFile(Bak, Base) then
+        Log('已还原官方原版 -> ' + Base)
+      else
+        Log('回滚失败：请手动把 ' + Bak + ' 改名为 ' + Base);
+    end;
+    MsgBox('汉化版写入后校验未通过（文件大小 ' + IntToStr(Sz) + ' 字节，预期 ' +
+           IntToStr(EXPECT_SIZE) + ' 字节）。' + #13#10 + #13#10 +
+           '安装程序已自动还原官方原版，Tailscale 仍可正常使用。' + #13#10 +
+           '请确认没有其它程序正在占用 Tailscale 后重新运行本安装包。',
+           mbCriticalError, MB_OK);
+    RaiseException('替换后文件校验失败');
+  end;
   Log('汉化版已写入 ' + Base + '（' + IntToStr(Sz) + ' 字节）');
 
   EnsureGuiPath();
@@ -474,7 +554,7 @@ end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  Base, Bak: String;
+  Base, Bak, Tmp: String;
 begin
   if CurUninstallStep <> usUninstall then
     Exit;
@@ -488,12 +568,38 @@ begin
   end;
 
   KillTray();
-  DeleteFile(Base);
-  if RenameFile(Bak, Base) then
-    Log('已还原官方 ' + EXE_NAME)
+
+  { 与安装流程同一套原则：不「先删后写」，全程 rename，
+    保证 tailscale-ipn.exe 任何时刻都不是残缺文件
+    （tailscaled 服务随时可能把 GUI 拉起来，见 ReplaceExe 的注释）。 }
+  Tmp := TsDir() + '\' + EXE_NAME + '.zh_removed';
+  DeleteFile(Tmp);
+  if RenameFile(Base, Tmp) then
+  begin
+    if RenameFile(Bak, Base) then
+    begin
+      DeleteFile(Tmp);
+      Log('已还原官方 ' + EXE_NAME);
+    end
+    else
+    begin
+      RenameFile(Tmp, Base);   { 回滚，别把主程序弄丢 }
+      MsgBox('还原官方 ' + EXE_NAME + ' 失败。' + #13#10 +
+             '请手动把 ' + Bak + ' 改名为 ' + Base + '。', mbError, MB_OK);
+    end;
+  end
+  else if not FileExists(Base) then
+  begin
+    if RenameFile(Bak, Base) then
+      Log('已还原官方 ' + EXE_NAME)
+    else
+      MsgBox('还原官方 ' + EXE_NAME + ' 失败。' + #13#10 +
+             '请手动把 ' + Bak + ' 改名为 ' + Base + '。', mbError, MB_OK);
+  end
   else
-    MsgBox('还原官方 ' + EXE_NAME + ' 失败。' + #13#10 +
-           '请手动把 ' + Bak + ' 改名为 ' + Base + '。', mbError, MB_OK);
+    MsgBox(EXE_NAME + ' 仍在运行，无法替换回官方版本。' + #13#10 +
+           '请先退出 Tailscale 托盘程序，再手动把 ' + Bak + ' 改名为 ' + Base + '。',
+           mbError, MB_OK);
 
   { 这里刻意**不**再拉起托盘程序，原因有两条：
       1) ExecAsOriginalUser 在卸载阶段会抛致命异常
