@@ -61,6 +61,11 @@ WizardStyle=modern
 UninstallDisplayName={#MyZhName} {#MyTsVersion}
 UninstallDisplayIcon={app}\{#ExeName}
 SetupLogging=yes
+; 本安装包会**原地替换** tailscale-ipn.exe。Explorer 的图标缓存 / 开始菜单
+; 磁贴缓存按「路径」记，文件被换掉后仍会继续显示旧图标甚至通用图标。
+; ChangesAssociations=yes 会让 Inno 在安装结束时发一条 SHCNE_ASSOCCHANGED，
+; 让 shell 刷新缓存；配合下面的 ie4uinit 一起，装完图标就是新的。
+ChangesAssociations=yes
 
 [Languages]
 ; 官方未随安装包分发简中语言包，这里从 issrc 同版本 tag 取来放在同目录，保证编译期确定
@@ -75,6 +80,19 @@ Source: "..\build\tailscale-ipn.zh.exe"; DestDir: "{app}"; DestName: "{#ExeName}
 ; DestName 固定成 {#MsiName}，与 [Code] 里的 MSI_NAME 常量严格一致
 Source: "..\{#MsiName}"; DestDir: "{tmp}"; DestName: "{#MsiName}"; Flags: deleteafterinstall
 #endif
+
+[Run]
+; 刷新 Windows 图标缓存。装完本包后 tailscale-ipn.exe 已经是汉化版，
+; 但 Explorer 可能还在用旧缓存渲染任务栏/开始菜单/托盘图标，
+; 表现为「图标不显示 / 变成白纸图标」。
+; 必须以「登录用户」身份跑 —— 图标缓存是 per-user 的。
+; 旧系统上可能没有 ie4uinit.exe，用 skipifdoesntexist 跳过而不是报错。
+; 注意：[Run] 段**没有** ignoreerrors 这个 flag（那是 [Files]/[UninstallRun] 的），
+; 写上会直接编译失败 "Parameter \"Flags\" includes an unknown flag"。
+; ie4uinit 退出码非 0 不会中断安装 —— [Run] 本来就不检查退出码。
+Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"; \
+  Flags: runhidden runasoriginaluser skipifdoesntexist; \
+  StatusMsg: "正在刷新系统图标缓存…"
 
 [Code]
 const
@@ -165,6 +183,103 @@ begin
   Result := RegKeyExists(HKEY_LOCAL_MACHINE,
                          'SYSTEM\CurrentControlSet\Services\Tailscale')
             and FileExists(TsDir() + '\tailscaled.exe');
+end;
+
+// 补写 HKLM\SOFTWARE\Tailscale IPN\GUIPath。
+//
+// 官方源码 util/winutil/winutil_windows.go 的 GUIPathFromReg() 从这个值读
+// 「客户端 GUI 可执行文件路径」，util/osshare/filesharingstatus_windows.go
+// 拿它当通知图标用。该值由官方 MSI 在安装时写入；若官方组件曾被单独卸载
+// 又重装（或本汉化包在服务缺失时补装过官方组件），它会残留成**空字符串**，
+// 那些通知就取不到图标。
+//
+// 只在「缺失或为空」时补写，不去覆盖 MSI 已经写好的值。
+function EnsureGuiPath(): Boolean;
+var
+  Existing: String;
+begin
+  Result := False;
+  if RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Tailscale IPN',
+                         'GUIPath', Existing) and (Existing <> '') then
+  begin
+    Log('GUIPath 已有有效值，保持不变: ' + Existing);
+    Exit;
+  end;
+  if RegWriteStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Tailscale IPN',
+                         'GUIPath', TsExe()) then
+  begin
+    Log('已补写 GUIPath = ' + TsExe());
+    Result := True;
+  end
+  else
+    Log('警告: 写入 GUIPath 失败（不影响主程序汉化）');
+end;
+
+// 清理 Windows 11 通知区域里**陈旧**的托盘图标缓存。
+//
+// 【现象】把汉化版原地覆盖到 tailscale-ipn.exe 之后，任务栏上的 Tailscale 图标
+//   会变成一个「几乎看不见的空白方块」，开始菜单 / 任务栏固定项里也可能退化成
+//   白纸通用图标（不是九点 logo）。
+//
+// 【原因】Win11 按**可执行文件路径**把每个托盘图标登记在
+//   HKCU\Control Panel\NotifyIconSettings\<ID> 下，并缓存一份 IconSnapshot
+//   （PNG，即 EXE 当前的「默认图标」位图）。这份快照只在 Explorer 首次看到
+//   该路径的图标时写入，之后**原地替换文件不会刷新它** —— 于是任务栏一直渲染那份旧快照。
+//   本机实测：该条目的 IconSnapshot 最大 alpha=76（约 30% 不透明度，白底上几乎不可见），
+//   而同键下另外 94 条系统图标全是 255。改用官方原版 exe 启动也一样 → 属残留缓存，
+//   不是汉化补丁把图标弄坏了（汉化版与原版的 .rsrc 图标资源逐字节一致）。
+//
+// 【做法】删掉 ExecutablePath 指向本 exe 的登记项；Explorer 下次启动会重新从
+//   exe 提取图标、重新写入一份正确的快照。
+//   注意：只删注册表**不会立刻生效** —— Explorer 进程内存里还留着旧图标，
+//   所以调用方还要重启一次 Explorer（见 RestartExplorerAsUser）。
+//
+// 【为什么不误伤干净机器】只有真的删到了条目才返回 >0，调用方才重启 Explorer。
+function PurgeStaleTrayIconCache(): Integer;
+var
+  Root, Sub, Val: String;
+  Names: TArrayOfString;
+  I: Integer;
+begin
+  Result := 0;
+  Root := 'Control Panel\NotifyIconSettings';
+  if not RegGetSubkeyNames(HKEY_CURRENT_USER, Root, Names) then
+  begin
+    Log('未找到 HKCU\' + Root + '，跳过托盘图标缓存清理');
+    Exit;
+  end;
+  for I := 0 to GetArrayLength(Names) - 1 do
+  begin
+    Sub := Root + '\' + Names[I];
+    if RegQueryStringValue(HKEY_CURRENT_USER, Sub, 'ExecutablePath', Val) then
+      if Pos(LowerCase(EXE_NAME), LowerCase(Val)) > 0 then
+      begin
+        if RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, Sub) then
+        begin
+          Result := Result + 1;
+          Log('已清除陈旧的托盘图标登记项: ' + Sub + '  ->  ' + Val);
+        end
+        else
+          Log('清除托盘图标登记项失败（不影响汉化）: ' + Sub);
+      end;
+  end;
+end;
+
+{ 重启 Explorer，让刚清掉的托盘图标登记被重新写入。
+  必须以「登录用户」身份跑 —— 托盘图标设置是 per-user 的，
+  而以管理员身份重启的 Explorer 会和用户会话脱节。
+  taskkill 强杀 + start 重新拉起是标准手法，桌面会短暂重绘一次。
+  只有在真的清掉了陈旧条目时才调用，避免打扰干净机器。 }
+procedure RestartExplorerAsUser();
+var
+  Rc: Integer;
+begin
+  if ExecAsOriginalUser(ExpandConstant('{cmd}'),
+       '/c taskkill /f /im explorer.exe >nul 2>nul & start "" explorer.exe', '',
+       SW_HIDE, ewNoWait, Rc) then
+    Log('已请求重启 Explorer 以刷新托盘图标')
+  else
+    Log('重启 Explorer 失败；托盘图标可能要到下次登录才会更新');
 end;
 
 { 目标机没装过 Tailscale（或组件残缺）时，用随包的官方 MSI 静默装好完整组件。
@@ -258,7 +373,7 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Base, Bak, NewExe: String;
-  Sz: Integer;
+  Sz, N: Integer;
 begin
   if CurStep <> ssPostInstall then
     Exit;
@@ -314,7 +429,7 @@ begin
 
   if not FileExists(NewExe) then
   begin
-    MsgBox('安装载荷缺失（tailscale-ipn.exe.new），安装中止。', mbCriticalError, MB_OK);
+    MsgBox('安装载荷缺失（' + NEW_NAME + '），安装中止。', mbCriticalError, MB_OK);
     RaiseException('缺少载荷文件');
   end;
 
@@ -339,6 +454,20 @@ begin
   if Sz <> EXPECT_SIZE then
     Log('警告: 安装后文件大小 ' + IntToStr(Sz) + '，预期 ' + IntToStr(EXPECT_SIZE));
   Log('汉化版已写入 ' + Base + '（' + IntToStr(Sz) + ' 字节）');
+
+  EnsureGuiPath();
+
+  { 图标修复：清掉原地替换 exe 后 Explorer 残留的陈旧托盘图标快照。
+    必须在替换完成之后做；真的清掉了才重启 Explorer，让它立即生效。 }
+  N := PurgeStaleTrayIconCache();
+  if N > 0 then
+  begin
+    Log('共清除 ' + IntToStr(N) + ' 条陈旧托盘图标登记，重启 Explorer 使其立即生效');
+    RestartExplorerAsUser();
+    Sleep(2000);   { 等 Explorer 重新起来，再把托盘程序拉起来 }
+  end
+  else
+    Log('未发现陈旧托盘图标登记，无需重启 Explorer');
 
   StartTrayAsUser();
 end;
