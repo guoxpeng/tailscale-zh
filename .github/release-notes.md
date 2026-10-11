@@ -15,6 +15,13 @@
 >   「The Tailscale service not installed on this machine」，点「登录...」也没有反应。
 >   现已改为校验 **Windows 服务 `Tailscale` + `{app}\tailscaled.exe`** 是否都在，
 >   缺失时自动静默补装官方组件（必要时强制重装），装不上就明确报错，不再产出残缺安装。
+> - **修复「装完任务栏图标不显示 / 变成白纸图标」**：图标本身没问题 —— 汉化版与原版的
+>   图标资源逐字节一致，`ExtractIconExW` 也能取到完整的九点 logo。真正的原因是 Windows 11
+>   把每个托盘图标按**可执行文件路径**登记在 `HKCU\Control Panel\NotifyIconSettings` 下并缓存一份
+>   图标快照，**原地替换 exe 不会刷新它**，于是任务栏一直渲染那个几乎全透明的旧快照
+>   （实测最大 alpha=76，白底上几乎看不见，其余 94 条系统图标都是 255）。
+>   本安装包现在会在装完后刷新图标缓存、清掉指向本程序的陈旧登记项，并在确实清到时
+>   自动重启一次 Explorer 让新图标立即生效；干净机器不会被打扰。
 > - **补齐 8 条残留英文**：托盘右键菜单的 `E&xit` → 退出(&X)、`&Settings` → &设置、
 >   `&Open Tailscale` → &打开 Tailscale、`Open` → 打开（旧表改的是菜单内部 ID `Exit`，
 >   显示文本其实是带 `&` 助记符的那一条，所以界面毫无变化），
