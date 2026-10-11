@@ -17,7 +17,11 @@
 ;  Inno 文档写明那样启动时 runasoriginaluser / ExecAsOriginalUser 会失效，
 ;  安装器将拿不到「登录用户」的凭据，后果是
 ;    · 托盘 GUI 会被以提权身份拉起（Tailscale 官方不支持 GUI 提权运行）；
-;    · 「刷新托盘图标」那一步的重启 Explorer 只能放弃（提权版 Explorer 接管不了桌面）。
+;    · 启动方式会退化成「交给 Explorer 转交」兜底（见 LaunchTrayOnce）。
+;
+;  【本安装器**不会**重启 Explorer】r9 及以前会在「刷新托盘图标」时重启一次 ——
+;  那条路径正是 2026-10-11 那次 GUI panic（Shell_NotifyIcon 失败）的肇因，
+;  而它想修的「陈旧图标快照」经实测根本不存在。r10 已整段删除，详见 [Code]。
 ;  这条已经写进 README；改安装器行为时请一并留意。
 ;
 ;  编译: ISCC.exe installer\tailscale-zh.iss
@@ -173,6 +177,138 @@ begin
   end;
 end;
 
+{ ===== 托盘程序：启动 + 体检 + 重试（r10 新增） =====
+
+  这一段取代了 r9 及以前那套「清托盘图标登记项 -> 重启 Explorer ->
+  等任务栏就绪 -> 拉 GUI」。那套做法经 2026-10-11 实测被否掉，两个理由都成立，
+  所以整段删除：
+
+  (1) 它**没有效果**。Win11 把每个托盘图标登记在
+      HKCU\Control Panel\NotifyIconSettings\ 下并缓存一份 IconSnapshot。
+      以前把这当成「陈旧缓存」，以为删掉 + 重启 Explorer 就能刷新。
+      实测反例：让官方原版 exe 与汉化版各自冷启动、各自重建登记项，
+      两边拿到的都是同一张 24x24 PNG，最大 alpha 同为 76。
+      也就是说快照不是缓存坏了，而是 Tailscale 运行时画出来的图标本来就长这样
+      —— 删掉重建还是同一张。做的是无用功。
+
+  (2) 它**有害**。重启 Explorer 后任务栏要好几秒才重建，而「Shell_TrayWnd
+      窗口出现」不等于「通知区域已能接受图标注册」。r9 恰在这个窗口期里把
+      GUI 拉起来，它的 populateTray -> Shell_NotifyIconW 直接失败，
+      GUI panic 弹框并退出 —— 用户最后连托盘图标都没了，比装之前还糟。
+
+  现在的策略：**完全不碰 Explorer**，只负责把 GUI 拉起来、确认它活着；
+  万一它因为上游那个已知的 Shell_NotifyIcon 问题挂了，就自动重试几次。 }
+
+{ 判断托盘程序是否在跑：tasklist 过滤 + find 找进程名。
+  find 找到返回 0、找不到返回 1，正好当布尔用。
+  （Inno 脚本层没有进程枚举 API，这是最轻量的做法。）
+
+  ⚠ 两处实测得来的硬要求，别改：
+    · find 必须写**绝对路径**（脚本里拼 ExpandConstant 的 sys 常量 + \find.exe）。
+      只写 'find' 会被 PATH 里别的
+      find.exe 抢走 —— 本机实测：Git/MSYS 的 GNU find 排在前面，它对新管道
+      直接返回 1，于是「进程明明在跑」被误判成「没跑」，重试逻辑会一直空转。
+    · 不能用 tasklist 自己的退出码判断：**没有任何进程匹配时它也返回 0**。 }
+function TrayRunning(): Boolean;
+var
+  Rc: Integer;
+  Cmd: String;
+begin
+  Result := False;
+  Cmd := '/c tasklist /FI "IMAGENAME eq ' + EXE_NAME + '" /NH | ' +
+         ExpandConstant('{sys}') + '\find.exe /i "' + EXE_NAME + '" >nul';
+  if Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, Rc) then
+    Result := (Rc = 0);
+end;
+
+{ 托盘 GUI 启动失败时会弹一个标题为「Tailscale 错误」的模态框
+  （英文原版是「Tailscale Error」）。两个标题都试 —— 中文标题在本文件里
+  就是普通 UTF-8 字面量，ISCC 能正确解码（实测报错信息里能显示出中文码位）。 }
+function PanicDialogHandle(): HWND;
+begin
+  Result := FindWindowByWindowName('Tailscale 错误');
+  if Result = 0 then
+    Result := FindWindowByWindowName('Tailscale Error');
+end;
+
+{ 把那个假报错框关掉，免得用户对着一个看不懂的堆栈发呆。
+  （KillTray 第一步的 taskkill 不带 /F，也会给该进程的顶层窗口发 WM_CLOSE，
+    两条路都兜一下。） }
+procedure DismissTrayPanicDialog();
+var
+  H: HWND;
+begin
+  H := PanicDialogHandle();
+  if H = 0 then
+    Exit;
+  Log('关闭托盘程序弹出的报错框（上游已知问题，安装器会自动重试）');
+  PostMessage(H, 16, 0, 0);   { WM_CLOSE }
+  Sleep(1000);
+end;
+
+{ 观察一次启动的结果：先等它起来，再盯 3 秒确认不是「刚起来就崩」。
+  期间一旦出现报错框就立刻判负，不必白等到超时。 }
+function WaitTraySettled(TimeoutMs: Integer): Boolean;
+var
+  I, W: Integer;
+begin
+  Result := False;
+  W := 0;
+  while W < TimeoutMs do
+  begin
+    if PanicDialogHandle() <> 0 then
+    begin
+      Log('第 ' + IntToStr(W) + ' 毫秒就出现报错框，本次启动判负');
+      Exit;
+    end;
+    if TrayRunning() then
+      Break;
+    Sleep(600);
+    W := W + 600;
+  end;
+  if not TrayRunning() then
+  begin
+    Log(IntToStr(TimeoutMs) + ' 毫秒内托盘程序没有起来，本次启动判负');
+    Exit;
+  end;
+  for I := 1 to 5 do
+  begin
+    Sleep(600);
+    if PanicDialogHandle() <> 0 then
+    begin
+      Log('托盘程序起来后又弹出报错框，本次启动判负');
+      Exit;
+    end;
+  end;
+  Result := TrayRunning();
+end;
+
+{ 用什么身份拉起托盘 GUI，按可靠性排序：
+  1) ExecAsOriginalUser —— 首选。用启动安装程序的**登录用户**（未提权）身份跑。
+     ⚠ Inno 文档写明：若用户是「右键 -> 以管理员身份运行」启动的（或安装程序
+       本身由已提权进程拉起），Inno 拿不到原始用户凭据，这个调用会**没有效果**
+       —— 也就是以提权身份把 GUI 拉起来，而 Tailscale 官方不支持 GUI 提权运行。
+       所以请**双击**运行本安装包，让它自己弹 UAC。
+  2) Explorer 转交（explorer.exe "<exe>"）—— 兜底。Explorer 永不提权，所以这条
+     路与安装程序的启动方式无关，拉起来的必定是中等完整性进程。
+     一键脚本 install_zh.bat 用的就是这个手法。
+  3) Exec —— 最后兜底，可能以提权身份运行。 }
+function LaunchTrayOnce(): Boolean;
+var
+  Rc: Integer;
+begin
+  Result := True;
+  if ExecAsOriginalUser(TsExe(), '', TsDir(), SW_SHOWNORMAL, ewNoWait, Rc) then
+    Exit;
+  Log('以原始用户身份启动托盘失败（多半是用「以管理员身份运行」启动的），改由 Explorer 转交');
+  if Exec(ExpandConstant('{sys}\explorer.exe'), '"' + TsExe() + '"', '',
+          SW_SHOWNORMAL, ewNoWait, Rc) then
+    Exit;
+  Log('Explorer 转交也失败，最后回退为 Exec（可能以提权身份运行）');
+  Result := Exec(TsExe(), '', TsDir(), SW_SHOWNORMAL, ewNoWait, Rc);
+end;
+
+
 { 以「登录用户」身份启动托盘程序（而不是管理员身份）。
   注意：Inno 里没有 ShellExecAsUser 这个脚本函数，正确的是 ExecAsOriginalUser。
   **本函数只能在安装阶段调用** —— ExecAsOriginalUser 在卸载阶段会抛致命错误
@@ -188,7 +324,7 @@ end;
   也容易和后续自动化步骤抢文件。 }
 procedure StartTrayAsUser(Force: Boolean);
 var
-  Rc: Integer;
+  I: Integer;
 begin
   if WizardSilent() and (not Force) then
   begin
@@ -200,30 +336,28 @@ begin
   if not FileExists(TsExe()) then
     Exit;
 
-  { 启动方式按可靠性排序：
-
-    1) Inno 的 ExecAsOriginalUser —— 用**启动安装程序的那个用户**（通常未提权）的
-       凭据执行。正常「双击 → 同意 UAC」时可用。
-
-       ⚠ 但 Inno 官方文档写明：若用户是「右键 → 以管理员身份运行」启动的（或者
-         安装程序本身由已提权的进程拉起），Inno **拿不到原始用户凭据**，
-         这个调用会「没有效果」—— 也就是**以提权身份**把 GUI 拉起来。
-         而 Tailscale 官方不支持 GUI 提权运行。
-         所以安装程序请**双击**运行，让它自己弹 UAC；不要右键「以管理员身份运行」。
-
-    2) 【兜底】把 exe 交给**已在用户会话里的 Explorer** 打开。
-       Explorer 自己永远不会以提权身份运行，所以由它转交启动的进程一定是
-       登录用户的「中等完整性」进程 —— 与第 1 条是否失效无关。
-       一键脚本 install_zh.bat 从头到尾用的就是这个手法。 }
-  if ExecAsOriginalUser(TsExe(), '', TsDir(), SW_SHOWNORMAL, ewNoWait, Rc) then
-    Exit;
-  Log('以原始用户身份启动托盘失败（多半是用「以管理员身份运行」启动的），改由 Explorer 转交');
-  if Exec(ExpandConstant('{sys}\explorer.exe'), '"' + TsExe() + '"', '',
-          SW_SHOWNORMAL, ewNoWait, Rc) then
-    Exit;
-  Log('Explorer 转交也失败，最后回退为 Exec（可能以提权身份运行）');
-  if not Exec(TsExe(), '', TsDir(), SW_SHOWNORMAL, ewNoWait, Rc) then
-    Log('启动 Tailscale 托盘程序失败，请手动运行 ' + TsExe());
+  { 拉起 + 体检，最多 3 次。
+    单次失败最常见的原因就是上游那个 Shell_NotifyIcon 竞态（通知区域尚未就绪），
+    它是**瞬时**的 —— 隔几秒再来一次基本就成。 }
+  for I := 1 to 3 do
+  begin
+    if not LaunchTrayOnce() then
+    begin
+      Log('托盘程序启动失败（第 ' + IntToStr(I) + ' 次），不再重试');
+      Exit;
+    end;
+    if WaitTraySettled(9000) then
+    begin
+      Log('托盘程序已启动并确认存活（第 ' + IntToStr(I) + ' 次尝试）');
+      Exit;
+    end;
+    Log('托盘程序第 ' + IntToStr(I) + ' 次启动未成功，清理后重试');
+    DismissTrayPanicDialog();
+    KillTray();
+    if I < 3 then
+      Sleep(4000);
+  end;
+  Log('托盘程序连续 3 次启动失败；已尽力。可手动运行 ' + TsExe());
 end;
 
 { 原子替换主程序：全程只用 rename，绝不出现「半个文件」。
@@ -440,173 +574,10 @@ begin
   RegDeleteKeyIfEmpty(HKEY_LOCAL_MACHINE, OUR_REG_KEY);
 end;
 
-// 清理 Windows 11 通知区域里**陈旧**的托盘图标缓存。
-//
-// 【现象】把汉化版原地覆盖到 tailscale-ipn.exe 之后，任务栏上的 Tailscale 图标
-//   会变成一个「几乎看不见的空白方块」，开始菜单 / 任务栏固定项里也可能退化成
-//   白纸通用图标（不是九点 logo）。
-//
-// 【原因】Win11 按**可执行文件路径**把每个托盘图标登记在
-//   HKCU\Control Panel\NotifyIconSettings\<ID> 下，并缓存一份 IconSnapshot
-//   （PNG，即 EXE 当前的「默认图标」位图）。这份快照只在 Explorer 首次看到
-//   该路径的图标时写入，之后**原地替换文件不会刷新它** —— 于是任务栏一直渲染那份旧快照。
-//   本机实测：该条目的 IconSnapshot 最大 alpha=76（约 30% 不透明度，白底上几乎不可见），
-//   而同键下另外 94 条系统图标全是 255。改用官方原版 exe 启动也一样 → 属残留缓存，
-//   不是汉化补丁把图标弄坏了（汉化版与原版的 .rsrc 图标资源逐字节一致）。
-//
-// 【做法】删掉 ExecutablePath 指向本 exe 的登记项；Explorer 下次启动会重新从
-//   exe 提取图标、重新写入一份正确的快照。
-//   注意：只删注册表**不会立刻生效** —— Explorer 进程内存里还留着旧图标，
-//   所以调用方还要重启一次 Explorer（见 RestartExplorerAsUser）。
-//
-// 【为什么不误伤干净机器】只有真的删到了条目才返回 >0，调用方才重启 Explorer。
-function PurgeStaleTrayIconCache(): Integer;
-var
-  Root, Sub, Val, Want: String;
-  Names: TArrayOfString;
-  I: Integer;
-begin
-  Result := 0;
-  Root := 'Control Panel\NotifyIconSettings';
-  { 注意不能拿「TsDir() + '\' + EXE_NAME」直接比 —— Explorer 存进
-    ExecutablePath 的往往不是 C:\Program Files\... 这种展开形式，而是
-    6D809377-... 这类「已知文件夹 GUID」前缀 + \Tailscale\tailscale-ipn.exe，
-    字符串相等判断会整个失效。改成看**路径尾部**，两种写法都能命中。
-    （写注释时别把那个 GUID 原样套上花括号：Inno 的块注释遇到第一个右花括号
-      就结束，后面整段会变成代码。） }
-  Want := LowerCase('\Tailscale\' + EXE_NAME);
-  if not RegGetSubkeyNames(HKEY_CURRENT_USER, Root, Names) then
-  begin
-    Log('未找到 HKCU\' + Root + '，跳过托盘图标缓存清理');
-    Exit;
-  end;
-  for I := 0 to GetArrayLength(Names) - 1 do
-  begin
-    Sub := Root + '\' + Names[I];
-    { 只动两种条目：
-      1) 指向**本安装目录**下的 tailscale-ipn.exe —— 它是原地替换 exe 的受害者；
-      2) 文件名同名但该文件**已不存在**的残留（例如曾从别的目录临时跑过一份）。
-      别的程序一概不碰。 }
-    if RegQueryStringValue(HKEY_CURRENT_USER, Sub, 'ExecutablePath', Val) then
-      if (Pos(Want, LowerCase(Val)) > 0) or
-         ((Pos(LowerCase(EXE_NAME), LowerCase(Val)) > 0) and (not FileExists(Val))) then
-      begin
-        if RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, Sub) then
-        begin
-          Result := Result + 1;
-          Log('已清除陈旧的托盘图标登记项: ' + Sub + '  ->  ' + Val);
-        end
-        else
-          Log('清除托盘图标登记项失败（不影响汉化）: ' + Sub);
-      end;
-  end;
-end;
+{ PurgeStaleTrayIconCache / RestartExplorerAsUser / WaitForShellReady 三个
+  过程已在 r10 删除 —— 它们既无效又有害，理由见文件前面 TrayRunning 上方
+  的大段注释。此处刻意留个空位，免得有人以为是漏删。 }
 
-{ 重启 Explorer，让刚清掉的托盘图标登记被重新写入。
-  必须以「登录用户」身份跑 —— 托盘图标设置是 per-user 的，
-  而以管理员身份重启的 Explorer 会和用户会话脱节。
-  taskkill 强杀 + start 重新拉起是标准手法，桌面会短暂重绘一次。
-  只有在真的清掉了陈旧条目时才调用，避免打扰干净机器。
-
-  【务必配合 WaitForShellReady 使用】重启之后任务栏要几秒才重建，
-  这期间绝不能再拉起 Tailscale（见 WaitForShellReady 的注释）。
-
-  【为什么 taskkill 和 start 之间要插一段 ping】
-  命令行里那条 ping 只是拿来当 sleep 用（ping 一定存在，timeout.exe 在无交互
-  会话里会直接报错退出）。它的作用是等旧 Explorer **真正退干净**再拉新的：
-  Explorer 是单实例进程，上一个还在收尾时启动的这一个会立刻自杀，
-  结果就是桌面彻底回不来（只剩壁纸）。实测不加这 2 秒有概率踩到。 }
-procedure RestartExplorerAsUser();
-var
-  Rc, I: Integer;
-begin
-  if not ExecAsOriginalUser(ExpandConstant('{cmd}'),
-       '/c taskkill /f /im explorer.exe >nul 2>nul' +
-       ' & ping -n 3 127.0.0.1 >nul' +
-       ' & start "" explorer.exe', '',
-       SW_HIDE, ewNoWait, Rc) then
-  begin
-    { 拿不到「原始用户」凭据时**刻意不重启 Explorer**。
-
-      这种情况几乎都是「右键 → 以管理员身份运行」启动的安装程序 ——
-      Inno 文档写明此时 runasoriginaluser 没有效果，会退化成用安装程序**自己的
-      提权身份**执行。要是以提权身份去 taskkill + start explorer，
-      新拉起的很可能是**提权版 Explorer**（Windows 不会让它接管用户会话的桌面），
-      结果就是桌面/任务栏回不来 —— 为了刷新一个托盘图标去冒「把桌面弄没」的风险，
-      完全不值。
-
-      此刻 Explorer 还活着（taskkill 根本没执行），所以什么都不会丢；
-      只是陈旧的托盘图标要等到下次登录才会刷新。
-
-      安装程序会自己请求管理员权限（PrivilegesRequired=admin），
-      所以正确用法是**双击**运行。 }
-    Log('拿不到原始用户凭据（多半是用「以管理员身份运行」启动的），' +
-        '为安全起见跳过重启 Explorer；托盘图标会在下次登录时自动刷新');
-    Exit;
-  end;
-  Log('已请求重启 Explorer 以刷新托盘图标');
-
-  { ★★ 这一步是 r8 才补上的关键：先确认**旧**任务栏已经消失，再收工。
-
-     不这么做的话，调用方紧接着的 WaitForShellReady 一开始轮询就会看到
-     「Shell_TrayWnd 还在」—— 那其实是**旧的**任务栏，于是它立刻判定
-     「已就绪」并返回，接着安装器就拉起 Tailscale；而此时 cmd 才刚把
-     taskkill 落到实处，任务栏进入空窗期，Shell_NotifyIconW 返回 error 87，
-     GUI 直接 panic 弹框。这正是 r7 修了却仍然会复现的那条路径。
-     （ExecAsOriginalUser 是异步启动，函数返回时 taskkill 往往还没跑。）
-     这里最多给 10 秒等旧任务栏消失。 }
-  for I := 1 to 40 do
-  begin
-    if FindWindowByClassName('Shell_TrayWnd') = 0 then
-    begin
-      Log('旧任务栏已消失（等待 ' + IntToStr(I * 250) + ' 毫秒）');
-      Exit;
-    end;
-    Sleep(250);
-  end;
-  Log('旧任务栏 10 秒内仍未消失，Explorer 可能没有被成功结束');
-end;
-
-{ 等任务栏（Shell_TrayWnd）真正重建完成。
-
-  ===== 这一段是 2026-10-11「Shell_NotifyIconW error 87」的根因修复 =====
-
-  【故障现象】装完包弹出一个全是堆栈的错误框：
-      Unable to set up Tailscale client:
-      walk.NewNotifyIcon: Shell_NotifyIconW(...) failed: error 87
-      ... ui.(*app).populateTray ...
-
-  【原因】error 87 = ERROR_INVALID_PARAMETER。Shell_NotifyIconW 内部要先找到
-  Shell_TrayWnd（任务栏）才能把图标加进通知区域，找不到时它返回的正是 87。
-  而本安装包在上一步刚把 Explorer 杀掉重启 —— 任务栏要几百毫秒到几秒才重建。
-  这段空窗期里把 GUI 拉起来，它的 populateTray 必然失败；
-  而 Tailscale 对这一步失败的处理是**直接 panic 弹框**（不是记录日志降级），
-  于是用户看到一个莫名其妙的报错，托盘也没起来。
-
-  【做法】任何「重启 Explorer 之后要拉托盘」的路径，都必须先过这个函数：
-  轮询任务栏窗口，出现后再给 2 秒缓冲（窗口存在 ≠ 通知区域已可用）。
-
-  返回 True 表示确认就绪；False 表示超时（调用方仍可继续，但要记日志）。 }
-function WaitForShellReady(TimeoutMs: Integer): Boolean;
-var
-  Waited: Integer;
-begin
-  Result := False;
-  Waited := 0;
-  while Waited < TimeoutMs do
-  begin
-    if FindWindowByClassName('Shell_TrayWnd') <> 0 then
-    begin
-      Sleep(2000);
-      Log('任务栏已就绪（等待 ' + IntToStr(Waited) + ' 毫秒）');
-      Result := True;
-      Exit;
-    end;
-    Sleep(250);
-    Waited := Waited + 250;
-  end;
-  Log('等待任务栏就绪超时（' + IntToStr(TimeoutMs) + ' 毫秒）');
-end;
 
 { 目标机没装过 Tailscale（或组件残缺）时，用随包的官方 MSI 静默装好完整组件。
   —— 这是「一体化安装」的关键：全新的电脑直接装本包即可，
@@ -742,7 +713,7 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Base, Bak, NewExe: String;
-  Sz, N: Integer;
+  Sz: Integer;
   TrayWasRunning: Boolean;
 begin
   if CurStep <> ssPostInstall then
@@ -873,47 +844,12 @@ begin
     让列表里只留本汉化包一条。做失败也只是多显示一条，不影响安装。 }
   HideOfficialUninstallEntry();
 
-  { 图标修复：清掉原地替换 exe 后 Explorer 残留的陈旧托盘图标快照。
-    必须在替换完成之后做；真的清掉了才重启 Explorer，让它立即生效。 }
-  N := PurgeStaleTrayIconCache();
-  if N > 0 then
-  begin
-    { 静默安装（/SILENT、/VERYSILENT，企业无人值守部署）下**不**重启 Explorer。
-      掀掉别人的桌面属于侵入式操作，而且没人坐在屏幕前看结果；而登记项已经清掉了，
-      Explorer 下次自然重启（注销 / 重启）时会重新写入一份正确的快照。
-      非静默（用户双击）才立刻重启，让新图标当场生效。 }
-    if WizardSilent() then
-      Log('静默安装：已清除 ' + IntToStr(N) +
-          ' 条陈旧托盘图标登记，按约定不重启 Explorer（下次登录自动生效）')
-    else
-    begin
-      Log('共清除 ' + IntToStr(N) + ' 条陈旧托盘图标登记，重启 Explorer 使其立即生效');
+  { 托盘图标那一段（清登记项 + 重启 Explorer + 等任务栏）在 r10 已整段移除 ——
+    它既无效又有害：想修的「陈旧快照」经实测根本不存在（官方原版 exe 冷启动
+    得到的快照与汉化版逐字节相同），而重启 Explorer 造成的任务栏空窗期正是
+    GUI panic 的肇因。理由详见文件前面 TrayRunning 上方的大段注释。
 
-      { 重启 Explorer 之前先把 GUI 请下去。Explorer 启动时会给所有顶层窗口广播
-        TaskbarCreated，活着的 GUI 收到后会重新 Shell_NotifyIcon(NIM_ADD)；
-        要是那一刻新任务栏的通知区域还没就绪，它同样会 error 87 并 panic。
-        实测 tailscaled **不会**自动把 GUI 拉回来（连杀 12 秒无新进程），
-        所以杀干净之后直到我们主动拉起之前，这段窗口期是安全的。 }
-      KillTray();
-
-      RestartExplorerAsUser();
-      { ★ 必须等任务栏重建完再拉托盘。
-        否则 GUI 的 populateTray -> Shell_NotifyIconW 会失败（error 87）
-        并 panic 弹框 —— 这正是 2026-10-11 那次「又报错」的根因。 }
-      if not WaitForShellReady(30000) then
-      begin
-        Log('任务栏长时间未出现，再主动拉起一次 Explorer 后重试');
-        RestartExplorerAsUser();
-        WaitForShellReady(30000);
-      end;
-    end;
-  end
-  else
-    Log('未发现陈旧托盘图标登记，无需重启 Explorer');
-
-  { 顺带说明：PurgeStaleTrayIconCache 清掉了登记项、却没重启 Explorer 时，
-    当前这份 Explorer 内存里仍是旧快照，显示上不会有变化 —— 这没问题，
-    它下次启动就会重新提取。真正必须保证的是「别在任务栏空窗期里启动 GUI」。 }
+    这里只做一件事：把 GUI 拉起来，确认它活着；万一挂了就清理后重试。 }
   StartTrayAsUser(TrayWasRunning);
 end;
 
