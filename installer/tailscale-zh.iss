@@ -95,8 +95,9 @@ SetupLogging=yes
 ;    SHChangeNotify(SHCNE_ASSOCCHANGED) —— 那是一次**同步广播给整个 shell** 的
 ;    调用，机器上只要有一个窗口不响应，它就会卡在那里；而它执行的位置恰恰就在
 ;    上面那个挂死窗口里（见 Inno 源码 Setup.MainForm.pas 里 Install 的尾部）。
-;    图标缓存刷新改由 [Run] 的 ie4uinit.exe -show 加安装包自己的
-;    PurgeStaleTrayIconCache() 负责，已经够了。
+;    图标缓存刷新交给 [Run] 的 ie4uinit.exe -show 独家负责，已经够了。
+;    （此处曾写着「再加安装包自己的 PurgeStaleTrayIconCache()」—— 那个过程
+;      在 r10 已整段删除，注释忘了一起改，2026-10-12 修正。）
 DisableFinishedPage=yes
 RestartIfNeededByRun=no
 
@@ -146,16 +147,30 @@ Name: "{commonprograms}\{#MyZhName}"; Filename: "{app}\{#ExeName}"; \
   WorkingDir: "{app}"; Comment: "启动 Tailscale（中文汉化版）"
 Name: "{commonprograms}\卸载 {#MyZhName}"; Filename: "{uninstallexe}"
 
+; ★ Windows 的「桌面」是**两个物理目录的合并视图**（用户桌面 + 公共桌面）。
+;   上面桌面图标用 {commondesktop} 建在公共桌面；用户桌面上若也躺着一个同名
+;   lnk（早期手工装过、或用户自己建的），桌面上就会**并排出现两个一样的图标**。
+;   所以 [Code] 里配了个 DropUserDesktopShortcut() 顺手清掉用户桌面那份。
+
 [Run]
-; 刷新 Windows 图标缓存。装完本包后 tailscale-ipn.exe 已经是汉化版，
-; 但 Explorer 可能还在用旧缓存渲染任务栏/开始菜单/托盘图标，
-; 表现为「图标不显示 / 变成白纸图标」。
+; 刷新 Windows 图标缓存，让刚创建的快捷方式立刻显示正确图标。
+;
+; ★ 执行时机 —— 2026-10-12 用 Inno 源码核实过，这里原先写反了：
+;   Inno 的顺序是  PerformInstall（装文件 / 建图标）→ ProcessRunEntries（本段）
+;   → SetStep(ssPostInstall)（**[Code] 里替换主程序就在这一步**）。
+;   也就是说：ie4uinit 跑在「主程序被换成汉化版」**之前**。
+;   没有影响，两条原因：
+;     · 本包只改 exe 里的字符串资源，图标资源（GROUP_ICON / ICON 两段）
+;       两版逐字节相同 —— 替换前后 Explorer 读到的图标一模一样；
+;     · 本段真正要刷的是**刚刚新建的快捷方式**，而那些文件在更早的
+;       PerformInstall 阶段就已经落盘了。
+;   刻意**不**加 postinstall 标记把它挪到 ssPostInstall 之后：r11 的教训是
+;   收尾阶段动作越少越好，宁可少刷一次，也不多一次卡死的机会。
 ;
 ; ★ 自从 [Setup] 里去掉了 ChangesAssociations（理由见那里），这条 ie4uinit
 ;   就成了**唯一**的图标缓存刷新入口 —— 所以 skipifdoesntexist 要留着：
 ;   老系统上可能没有 ie4uinit.exe，那种情况下跳过即可，绝不能报错中断。
 ; 必须以「登录用户」身份跑 —— 图标缓存是 per-user 的。
-; 旧系统上可能没有 ie4uinit.exe，用 skipifdoesntexist 跳过而不是报错。
 ; 注意：[Run] 段**没有** ignoreerrors 这个 flag（那是 [Files]/[UninstallRun] 的），
 ; 写上会直接编译失败 "Parameter \"Flags\" includes an unknown flag"。
 ; ie4uinit 退出码非 0 不会中断安装 —— [Run] 本来就不检查退出码。
@@ -174,6 +189,8 @@ const
   BAK_NAME = '{#ExeName}.orig';
   NEW_NAME = '{#ExeName}.new';
   MSI_NAME = '{#MsiName}';
+  { 快捷方式显示名（[Icons] 段建 lnk 用的就是它）——两处必须一致 }
+  ZH_NAME  = '{#MyZhName}';
   EXPECT_SIZE = 29622776;
   { 本汉化包自己的注册表落脚点（只用来记「临时隐藏了官方哪条卸载项」） }
   OUR_REG_KEY = 'SOFTWARE\TailscaleZh';
@@ -591,11 +608,16 @@ begin
         if RegQueryStringValue(HKEY_LOCAL_MACHINE, Sub, 'Publisher', Pub) then
           if Pos('Tailscale Inc', Pub) > 0 then
           begin
-            { 幂等：已经是隐藏状态就什么都不做 }
+            { 已经是隐藏状态，就不必再写一次 SystemComponent —— 但**归属记录
+              仍然要确保写上**。否则万一记录曾在某次卸载时被清掉（或者用户手工
+              清了 TailscaleZh 这个键），官方条目就会永远藏在「设置 → 应用」里
+              谁也找不回来。补记一次是幂等的，成本可以忽略。 }
             if RegQueryDWordValue(HKEY_LOCAL_MACHINE, Sub,
                                   'SystemComponent', Cur) and (Cur = 1) then
             begin
-              Log('官方卸载条目已是隐藏状态，保持不变: ' + Names[I]);
+              RegWriteStringValue(HKEY_LOCAL_MACHINE, OUR_REG_KEY,
+                                  'HiddenUninstall', Names[I]);
+              Log('官方卸载条目已是隐藏状态，补记归属: ' + Names[I]);
               Exit;
             end;
             if RegWriteDWordValue(HKEY_LOCAL_MACHINE, Sub, 'SystemComponent', 1) then
@@ -632,6 +654,29 @@ begin
     Log('恢复官方卸载条目失败（该产品可能已被单独卸载）: ' + Name);
   RegDeleteValue(HKEY_LOCAL_MACHINE, OUR_REG_KEY, 'HiddenUninstall');
   RegDeleteKeyIfEmpty(HKEY_LOCAL_MACHINE, OUR_REG_KEY);
+end;
+
+{ 清掉「用户桌面」上的同名快捷方式 —— 只留 [Icons] 建在公共桌面的那一份。
+
+  Windows 的「桌面」是**两个物理目录的合并视图**：
+      用户桌面常量（userdesktop）  —— 用户自己的桌面（本机被重定向到 D 盘）
+      公共桌面常量（commondesktop）—— C:\Users\Public\Desktop
+  两个目录里的同名文件会**并排显示**成两个图标（系统不做去重）。[Icons] 建的是
+  公共桌面那份；早期手工装过汉化、或用户自己拖过一份出来的话，用户桌面上就会
+  多出一个同名的，装完会看见两个一模一样的图标。
+
+  userdesktop 常量在提权安装下仍解析成**启动安装程序的那个用户**的桌面，所以这里
+  删的正是用户眼前那份；万一解析到了别的管理员账户，删的也是那个账户桌面上的
+  同名文件，同样无害。
+
+  删不到（不存在 / 被占用）都无所谓，只是少清理一次，绝不因此中断安装。 }
+procedure DropUserDesktopShortcut();
+var
+  P: String;
+begin
+  P := ExpandConstant('{userdesktop}') + '\' + ZH_NAME + '.lnk';
+  if DeleteFile(P) then
+    Log('已清理用户桌面上的重复快捷方式: ' + P);
 end;
 
 { PurgeStaleTrayIconCache / RestartExplorerAsUser / WaitForShellReady 三个
@@ -953,6 +998,10 @@ begin
   { 汉化已经落地，这时才把官方 MSI 在「设置 → 应用」里的那条藏起来 ——
     让列表里只留本汉化包一条。做失败也只是多显示一条，不影响安装。 }
   HideOfficialUninstallEntry();
+
+  { 桌面快捷方式由 [Icons] 建在公共桌面；用户桌面上若还留着同名的旧 lnk，
+    桌面上会并排出现两个一样的图标 —— 顺手清掉，只留一份。 }
+  DropUserDesktopShortcut();
 
   { 托盘图标那一段（清登记项 + 重启 Explorer + 等任务栏）在 r10 已整段移除 ——
     它既无效又有害：想修的「陈旧快照」经实测根本不存在（官方原版 exe 冷启动

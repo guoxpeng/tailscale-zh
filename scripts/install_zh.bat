@@ -53,6 +53,17 @@ if not exist "%SRC%" (
   pause & exit /b 1
 )
 
+rem ===== 版本预检：与安装包同样的道理 =====
+rem 汉化补丁按官方 1.104.1 的**精确文件偏移**生成，对别的版本强行替换
+rem 必然失败、或者让 Tailscale 直接起不来。安装包里有这道闸门，脚本也补上。
+for %%A in ("%DST%") do set "DSIZE=%%~zA"
+if not "%DSIZE%"=="29622776" (
+  echo [!] 本机的 tailscale-ipn.exe 是 %DSIZE% 字节，不是本汉化包支持的
+  echo     官方 1.104.1（29622776 字节）。强行替换会失败或让程序无法启动。
+  echo     请先卸载现有 Tailscale，装好官方 1.104.1 后再运行本脚本。
+  pause & exit /b 1
+)
+
 echo [1/5] 备份官方原版 -^> tailscale-ipn.exe.orig
 if exist "%BAK%" goto BAK_EXISTS
 copy /Y "%DST%" "%BAK%" >nul
@@ -136,8 +147,9 @@ explorer.exe "%DST%"
 
 echo.
 echo  完成！点击托盘里的 Tailscale 图标即可看到中文界面。
-echo  （若任务栏上的 Tailscale 图标是空白方块：那是 Win11 的托盘图标缓存，
-echo    注销一次或重启 explorer.exe 即可恢复，程序本身没问题。）
+echo  （托盘图标是 Tailscale 运行时自己画的半透明小圆点，在浅色任务栏下看
+echo    起来偏淡 —— 那是图标本来的样子，与汉化无关，不要去重启 explorer.exe。）
+echo  （本脚本只替换主程序，不创建快捷方式；要桌面图标请用安装包。）
 echo  还原官方英文版:  install_zh.bat restore
 echo.
 pause
