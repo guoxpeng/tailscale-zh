@@ -173,4 +173,7 @@
     <string name="template_percent">百分之 %1$d。</string>
     <string name="tooltip_description">工具提示</string>
     <string name="tooltip_label">顯示工具提示</string>
-<string name="bottom_sheet_behavior">底部动作条行为</string><string name="fab_transformation_scrim_behavior">浮动按钮转换遮罩行为</string><string name="fab_transformation_sheet_behavior">浮动按钮转换面板行为</string><string name="material_slider_range_end">范围结束</string><string name="material_slider_range_start">范围开始</string><string name="mtrl_exceed_max_badge_number_suffix">+</string><string name="mtrl_picker_cancel">取消</string><string name="switch_warning_dialog_title">警告</string></resources>
+<string name="bottom_sheet_behavior">底部动作条行为</string><string name="fab_transformation_scrim_behavior">浮动按钮转换遮罩行为</string><string name="fab_transformation_sheet_behavior">浮动按钮转换面板行为</string><string name="material_slider_range_end">范围结束</string><string name="material_slider_range_start">范围开始</string><string name="mtrl_exceed_max_badge_number_suffix">+</string><string name="mtrl_picker_cancel">取消</string><string name="switch_warning_dialog_title">警告</string>
+    <string name="allow_external_vpn_control">允許其他應用程式控制 VPN</string>
+    <string name="allow_external_vpn_control_subtitle">開啟後 Tasker、MacroDroid 等自動化應用程式可透過廣播連線/中斷 VPN 或切換出口節點；關閉時忽略這些廣播。</string>
+</resources>

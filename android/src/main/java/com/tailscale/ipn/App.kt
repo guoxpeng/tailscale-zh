@@ -575,6 +575,8 @@ open class UninitializedApp : Application() {
     private const val ALLOW_SELECTED_APPS_KEY = "allowSelectedApps"
 
     private const val IS_CLIENT_LOGGING_ENABLED_KEY = "isClientLoggingEnabled"
+    // 汉化版：是否允许其他应用通过广播控制 VPN（默认关闭）
+    private const val ALLOW_EXTERNAL_VPN_CONTROL_KEY = "allowExternalVpnControl"
     // File for shared preferences that are not encrypted.
     private const val UNENCRYPTED_PREFERENCES = "unencrypted"
     private lateinit var appInstance: UninitializedApp
@@ -615,6 +617,18 @@ open class UninitializedApp : Application() {
 
   private fun getUnencryptedPrefs(): SharedPreferences {
     return getSharedPreferences(UNENCRYPTED_PREFERENCES, MODE_PRIVATE)
+  }
+
+  /**
+   * 汉化版：是否允许其他应用（Tasker、MacroDroid 等）通过 IPNReceiver 广播连接/断开 VPN 或切换出口节点。
+   * 默认关闭。IPNReceiver 收到广播时可能 App 尚未完全初始化，因此存放在未加密偏好里，可随时读取。
+   */
+  fun isExternalVpnControlAllowed(): Boolean {
+    return getUnencryptedPrefs().getBoolean(ALLOW_EXTERNAL_VPN_CONTROL_KEY, false)
+  }
+
+  fun setExternalVpnControlAllowed(value: Boolean) {
+    getUnencryptedPrefs().edit().putBoolean(ALLOW_EXTERNAL_VPN_CONTROL_KEY, value).apply()
   }
 
   /**
@@ -764,7 +778,8 @@ open class UninitializedApp : Application() {
     val action =
         if (vpnRunning) IPNReceiver.INTENT_DISCONNECT_VPN else IPNReceiver.INTENT_CONNECT_VPN
     val actionLabel = getString(if (vpnRunning) R.string.disconnect else R.string.connect)
-    val buttonIntent = Intent(this, IPNReceiver::class.java).apply { this.action = action }
+    // 通知栏按钮走不导出的 InternalIPNReceiver，不受“允许其他应用控制 VPN”开关影响。
+    val buttonIntent = Intent(this, InternalIPNReceiver::class.java).apply { this.action = action }
     val pendingButtonIntent: PendingIntent =
         PendingIntent.getBroadcast(
             this,

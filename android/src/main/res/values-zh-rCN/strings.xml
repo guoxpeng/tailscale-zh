@@ -303,4 +303,6 @@ Tailscale 是 Tailscale Inc. 的注册商标。"</string>
     <string name="copy_magic_dns_address">复制 MagicDNS 主机名</string>
     <string name="copy_ipv4_address">复制 IPv4 地址</string>
     <string name="copy_ipv6_address">复制 IPv6 地址</string>
+    <string name="allow_external_vpn_control">允许其他应用控制 VPN</string>
+    <string name="allow_external_vpn_control_subtitle">开启后 Tasker、MacroDroid 等自动化应用可通过广播连接/断开 VPN 或切换出口节点；关闭时忽略这些广播。</string>
 </resources>

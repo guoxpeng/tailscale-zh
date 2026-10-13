@@ -109,6 +109,11 @@
             </intent-filter>
         </receiver>
 
+        <!-- 汉化版：应用自身（通知栏连接/断开按钮）使用的内部接收器，不导出，不受外部控制开关影响 -->
+        <receiver
+            android:name=".InternalIPNReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".InlineShareActionReceiver"
             android:exported="false" />
