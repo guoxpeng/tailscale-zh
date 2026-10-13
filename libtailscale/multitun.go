@@ -26,8 +26,8 @@ type multiTUN struct {
 	close    chan struct{}
 	closeErr chan error
 
-	reads        chan ioRequest
-	writes       chan ioRequest
+	reads        chan readRequest
+	writes       chan writeRequest
 	mtus         chan chan mtuReply
 	names        chan chan nameReply
 	shutdowns    chan struct{}
@@ -47,7 +47,7 @@ type multiTUN struct {
 	down   bool // whether the downCh is closed
 }
 
-// tunDevice wraps and drives a single run.Device.
+// tunDevice wraps and drives a single tun.Device.
 type tunDevice struct {
 	dev tun.Device
 	// close closes the device.
@@ -57,11 +57,13 @@ type tunDevice struct {
 	readDone chan struct{}
 }
 
-type ioRequest struct {
-	// For reads (new tun.Reader API):
+type readRequest struct {
 	slab    []byte
 	packets []tun.ReadPacket
-	// For writes:
+	reply   chan<- ioReply
+}
+
+type writeRequest struct {
 	data   [][]byte
 	offset int
 	reply  chan<- ioReply
@@ -88,8 +90,8 @@ func newTUNDevices() *multiTUN {
 		events:       make(chan tun.Event),
 		close:        make(chan struct{}),
 		closeErr:     make(chan error),
-		reads:        make(chan ioRequest),
-		writes:       make(chan ioRequest),
+		reads:        make(chan readRequest),
+		writes:       make(chan writeRequest),
 		mtus:         make(chan chan mtuReply),
 		names:        make(chan chan nameReply),
 		shutdowns:    make(chan struct{}),
@@ -332,7 +334,11 @@ func (d *multiTUN) Read(slab []byte, packets []tun.ReadPacket) (int, error) {
 	// to continue waiting until the tunnel is up again
 	// or the multiTUN device is permanently closed.
 	// This does not block WireGuard reconfiguration.
-	case d.reads <- ioRequest{slab: slab, packets: packets, reply: r}:
+	case d.reads <- readRequest{
+		slab:    slab,
+		packets: packets,
+		reply:   r,
+	}:
 		rep := <-r
 		return rep.count, rep.err
 	case <-d.close:
@@ -344,7 +350,11 @@ func (d *multiTUN) Read(slab []byte, packets []tun.ReadPacket) (int, error) {
 func (d *multiTUN) Write(data [][]byte, offset int) (int, error) {
 	r := make(chan ioReply)
 	select {
-	case d.writes <- ioRequest{data: data, offset: offset, reply: r}:
+	case d.writes <- writeRequest{
+		data:   data,
+		offset: offset,
+		reply:  r,
+	}:
 		rep := <-r
 		return rep.count, rep.err
 	case <-d.downCh.Load():

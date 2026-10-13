@@ -3,7 +3,8 @@
 基于官方 Tailscale Android 客户端的修改版，增加代理模式、内置浏览器和完整中文汉化。
 
 > **当前版本：1.104.1**（真实版本号，Tailscale 控制台显示一致）
-> 基于官方 `tailscale.com v1.104.1` Go 核心构建。
+> 界面层（Kotlin/Java）基于官方 tailscale-android `release-branch/1.104`（6d75bd4，"go.mod: update for 1.104.1"），
+> Go 核心为官方 `tailscale.com v1.104.1`，两者版本一致。
 
 ## 功能特性
 
@@ -30,7 +31,8 @@
 ## 已知问题
 
 - 首次启动代理模式需等待 tsnet 连接（约 10-30 秒），期间状态显示连接中
-- Android 14 上建议关闭预测性返回手势（已在 Manifest 中默认关闭，避免系统导航库闪退）
+- 预测性返回手势保持开启；为避开官方 navigation 2.8.5 在 `NavHost.kt:620` 的越界崩溃（设置页返回闪退），
+  本仓库固定使用 navigation-compose **2.9.8**（见 `android/gradle/libs.versions.toml`），升级上游时请勿回退。
 
 ## 下载安装
 
@@ -46,7 +48,8 @@
 
 ## 自动打包与发布
 
-只需打一个标签，GitHub Actions 就会自动构建**全架构 APK** 并写进对应版本的 Release：
+先把 `android/build.gradle.kts` 里的 `versionName` / `versionCode` 改好（versionCode 必须递增），
+再打一个标签，GitHub Actions 就会自动构建**全架构 APK** 并写进对应版本的 Release：
 
 ```bash
 git tag android-v1.104.1          # 标签格式：android-v<版本号>
@@ -69,7 +72,7 @@ git push origin android-v1.104.1
 
 ## 本地构建
 
-需要 Go、Android SDK、Android NDK：
+需要 Go、JDK 21、Android SDK（API 36）、Android NDK：
 
 ```bash
 # 安装 Android SDK 组件

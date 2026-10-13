@@ -4,7 +4,7 @@ name: 构建安卓汉化 APK
 # 打 android-v* 标签 → 构建全架构 APK → 发布到 Releases。
 # 手动触发（workflow_dispatch）只构建并上传 Actions 产物，不发布 Release。
 #
-# 发版约定：统一发到 Release 标签 `v<版本号>`（= android/build.gradle 的 versionName）。
+# 发版约定：统一发到 Release 标签 `v<版本号>`（= android/build.gradle.kts 的 versionName）。
 # Windows 侧（pc 分支的 build-pc-installer.yml）也写同一个 Release，
 # 因此一个 Release 页面里同时有 Android APK 与 Windows 安装包。
 
@@ -35,11 +35,13 @@ jobs:
         with:
           go-version: '1.22'
 
-      - name: 安装 Java 17
+      # 上游 1.104 起改用 AGP 9.4 + Gradle 9.6，并在 gradle-daemon-jvm.properties 里
+      # 指定 Gradle 守护进程用 JDK 21（与上游 CI 一致）。
+      - name: 安装 Java 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: 安装 Android SDK 与 NDK
         run: |
@@ -52,11 +54,11 @@ jobs:
           mkdir -p cmdline-tools/latest
           mv cmdline-tools/bin cmdline-tools/lib cmdline-tools/latest/
           yes | cmdline-tools/latest/bin/sdkmanager --licenses
-          cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;25.2.9519653"
+          cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;25.2.9519653"
           echo "ANDROID_HOME=/opt/android-sdk" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=/opt/android-sdk" >> $GITHUB_ENV
           echo "/opt/android-sdk/platform-tools" >> $GITHUB_PATH
-          echo "/opt/android-sdk/build-tools/34.0.0" >> $GITHUB_PATH
+          echo "/opt/android-sdk/build-tools/36.0.0" >> $GITHUB_PATH
 
       # 用仓库里固定的调试密钥签名，而不是每次随机生成：
       # 随机密钥会导致每个版本的签名都不同，用户无法覆盖安装升级。
@@ -70,7 +72,8 @@ jobs:
       - name: 读取版本号
         id: ver
         run: |
-          v=$(grep -oP 'versionName\s+"\K[^"]+' android/build.gradle | head -1)
+          v=$(grep -oP 'versionName\s*=\s*"\K[^"]+' android/build.gradle.kts | head -1)
+          test -n "$v" || { echo "未能从 android/build.gradle.kts 读到 versionName"; exit 1; }
           echo "version=$v" >> $GITHUB_OUTPUT
           echo "本次版本号: $v"
 
@@ -92,9 +95,9 @@ jobs:
         run: |
           apk="Tailscale-zh-${{ steps.ver.outputs.version }}.apk"
           echo "===== 签名 ====="
-          /opt/android-sdk/build-tools/34.0.0/apksigner verify --verbose "$apk"
+          /opt/android-sdk/build-tools/36.0.0/apksigner verify --verbose "$apk"
           echo "===== 包信息 ====="
-          /opt/android-sdk/build-tools/34.0.0/aapt dump badging "$apk" \
+          /opt/android-sdk/build-tools/36.0.0/aapt dump badging "$apk" \
             | grep -E "^package|^sdkVersion|^targetSdkVersion|^native-code|^application-label:"
 
       - name: 上传构建产物
