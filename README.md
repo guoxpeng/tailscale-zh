@@ -253,7 +253,7 @@ CI 会在**源文件哈希不符**时直接失败（不会产出错误的包）�
 - **数字签名失效**：改动后的 `tailscale-ipn.exe` 不再有 Tailscale 官方签名，Windows 可能提示「未知发布者」。
 - **自动更新会覆盖汉化**：请到「设置 → 自动安装&更新」取消勾选（`Automatically install &updates`）。
   官方文档写明自动更新「即使客户端未连接也会进行」，新建的 tailnet 默认对新设备开启
-  （[Update Tailscale](https://tailscale.com/kb/1067/update)）。被覆盖后界面变回英文，但程序本身是完整的官方新版、
+  （[Update Tailscale](https://tailscale.com/docs/features/client/update)）。被覆盖后界面变回英文，但程序本身是完整的官方新版、
   可正常使用；此时**卸载汉化包 / `install_zh.bat restore` 不会再用旧的 1.104.1 备份去降级**（两者都会先核对
   当前主程序是否仍是 1.104.1，以及 `.orig` 备份的 SHA256 是否为官方原版）。
 - **完整性校验**：CI 钉死官方 MSI 整包 SHA256 并校验其 Tailscale 数字签名、钉死 Inno Setup 安装包哈希、
