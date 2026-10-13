@@ -59,7 +59,7 @@
 
 **打一个 `v<版本号>` 标签即可同时出 APK 和 exe。**
 
-1. 先把 `android/build.gradle.kts` 里的 `versionName` / `versionCode` 改好（versionCode 必须递增）并推到 `main`；
+1. 先把 `android/build.gradle.kts` 里的 `versionName` / `versionCode` 改好（versionCode 必须递增，且保持 `11` 开头的 10 位数，否则谷歌商店会误报「有更新」）并推到 `main`；
 2. 打标签并推送（标签必须是 `v` + versionName，例如 versionName = `1.104.1-fix4`）：
 
 ```bash
