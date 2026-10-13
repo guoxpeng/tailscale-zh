@@ -1,21 +1,21 @@
 name: Build PC (Windows) Chinese Installer
 
-# 推送到 pc 分支、打 pc-v* 标签、或手动触发时：
+# 推送到 pc 分支或手动触发时（**只构建、不发版**）：
 #   拉官方 MSI → 解出原始 tailscale-ipn.exe → 校验 SHA256 → 打汉化补丁
-#   → 校验产物 → Inno Setup 编译向导式安装包 → 上传 Artifact（打标签时发 Release）
+#   → 校验产物 → Inno Setup 编译向导式安装包 → 上传 Artifact
 #
-# 发版约定：只有打 pc-v* 标签才发版，且统一发到 Release 标签 `v<版本号>`（= v$TS_VERSION）。
-# Android 侧（main 分支的 android-release.yml）也写同一个 Release，
-# 因此一个 Release 页面里同时有 Windows 安装包与 Android APK。
+# 发版已统一到 main 分支的 .github/workflows/release.yml：
+#   打一个 v<版本号> 标签即可同时出 APK 和 exe（exe 由那条流水线检出本分支构建）。
+# 旧的 pc-v* 标签发版已移除，避免与 release.yml 重复发版。
+# 改动本文件的构建步骤时，请同步 main 分支 release.yml 里的 windows 作业。
 
 on:
   push:
     branches: [ pc ]
-    tags: [ 'pc-v*' ]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: pc-installer-${{ github.ref }}
@@ -129,9 +129,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Remove-Item -Recurse -Force release -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force release | Out-Null
-          # Release 里本流水线只负责追加 exe：向导式安装包（已内嵌官方组件）。
-          # 汉化主程序 / 对照表 / 补丁明细 / 一键脚本都在仓库里，不重复上传；
-          # 文件的 sha256 由 GitHub 直接标在资产上，也无需另附校验清单。
+          # 本流水线只产出 Actions 产物；正式发版由 main 分支 release.yml 负责。
           Copy-Item dist\*.exe release\
           Get-ChildItem release | Format-Table Name, Length
 
@@ -141,23 +139,3 @@ jobs:
           name: tailscale-zh-windows-${{ env.TS_VERSION }}
           path: release/*
           if-no-files-found: error
-
-      - name: Publish release (tag only)
-        if: startsWith(github.ref, 'refs/tags/pc-v')
-        uses: softprops/action-gh-release@v2
-        with:
-          # 统一发版标签 = v<版本号>。Windows 与 Android 两条流水线都写**同一个** Release，
-          # 所以 release 页面里永远同时挂着 exe 与 apk 两个安装包。
-          # 打 pc-v* 标签只触发本流水线（Windows），它只覆盖 exe，不会动 apk。
-          tag_name: v${{ env.TS_VERSION }}
-          name: Tailscale 汉化版 ${{ env.TS_VERSION }}（Windows + Android）
-          target_commitish: ${{ github.sha }}
-          # 默认 false 会静默建出「没有资产」的空 Release，这里必须显式开启
-          fail_on_unmatched_files: true
-          # 同名资产直接覆盖，方便同版本重跑
-          overwrite_files: true
-          draft: false
-          prerelease: false
-          generate_release_notes: false
-          body_path: .github/release-notes.md
-          files: release/*

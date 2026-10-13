@@ -10,8 +10,8 @@
 | 🖥️ Windows | `Tailscale-zh-<版本>-setup.exe` | 本仓库（`pc` 分支）产出 · 一体化向导安装包，内嵌官方组件 |
 | 📱 Android | `Tailscale-zh-<版本>.apk` | `main` 分支产出 · 全架构 APK |
 
-两条流水线都写**同一个** Release（标签 `v<版本号>`），各自只覆盖自己那个文件、
-不动另一端的安装包；其余材料都在仓库源码里。CI 每次推送都会重新构建，Release 资产与源码逐字节对应。
+两个安装包由 `main` 分支的统一发版流水线一起构建、一起发到 Release（标签 `v<版本号>`）；
+其余材料都在仓库源码里。
 
 > - **没装过 Tailscale 的电脑**：直接装本包即可 —— 会先**静默**装好官方组件
 >   （`msiexec /qn`，全程无界面、无英文向导、无弹窗），再把界面换成中文版。
@@ -196,21 +196,30 @@ inno\ISCC.exe installer\tailscale-zh.iss
 > 编译器能直接指出脚本函数用错（例如 `FileSize` 是 `var` 出参而非返回值、
 > `ExecAsOriginalUser` 在卸载阶段不可调用），比等 CI 快得多。
 
-### CI 自动构建
+### CI 自动构建与发版
 
 `.github/workflows/build-pc-installer.yml`：推送到 `pc` 分支（或手动触发 `workflow_dispatch`）时，
 自动下载官方 MSI → 校验 SHA256 → 打补丁 → 校验产物 → 装 Inno Setup 6.7.3 → 编译安装包 → 上传 Artifact。
-打 `pc-v*` 标签时额外发版，且**统一发到 Release 标签 `v<版本号>`**（例如 `v1.104.1`）。
+**它只构建、不发版。**
 
-**发版约定：一个 Release = 一个版本 = 两个安装包。** Windows 流水线（`pc` 分支，`pc-v*` 标签）
-与 Android 流水线（`main` 分支，`android-v*` 标签）各自往**同一个** `v<版本号>` Release 里写资产，
-所以打开任意一个 Release 都能同时看到 `Tailscale-zh-<版本>-setup.exe` 与 `Tailscale-zh-<版本>.apk`；
-重跑只会覆盖同名文件（`overwrite_files: true`），另一端的包保持不动。Release 说明统一取自
-[`.github/release-notes.md`](.github/release-notes.md)，避免两条流水线各写一份。
+**发版：打一个 `v<版本号>` 标签即可同时出 APK 和 exe。** 发版统一由 `main` 分支的
+`.github/workflows/release.yml` 负责：在 `main` 上打 `v<版本号>` 标签（必须等于
+`main` 分支 `android/build.gradle.kts` 的 versionName，例如 `v1.104.1-fix4`），流水线会
+构建 APK、检出本 `pc` 分支构建 exe，两个都成功后一起发到 Release `v<版本号>`：
 
-汉化主程序、中英对照表、补丁明细、一键脚本都在仓库源码里，不重复上传；文件的 `sha256`
-由 GitHub 直接标在资产上。（页面下方自动出现的 `Source code (zip/tar.gz)` 是 GitHub
-为每个 Release 强制的源码快照，无法删除，任何仓库都一样。）
+```bash
+# 在 main 分支上（先改好 versionName / versionCode 并推送）
+git tag v1.104.1-fix4
+git push origin v1.104.1-fix4
+```
+
+- exe 资产名带发版版本号：`Tailscale-zh-<版本号>-setup.exe`；安装包内部登记的官方组件版本
+  仍是 **1.104.1**（`installer/tailscale-zh.iss` 的 `MyTsVersion`），汉化补丁只适配官方 1.104.1。
+- Release 同时附 `SHA256SUMS.txt`，说明取自 `main` 分支的 `.github/release-notes.md`。
+- 旧的 `pc-v*` 标签**已不再发版**；改本分支构建步骤时，请同步 `release.yml` 的 windows 作业。
+
+汉化主程序、中英对照表、补丁明细、一键脚本都在仓库源码里，不重复上传。（页面下方自动出现的
+`Source code (zip/tar.gz)` 是 GitHub 为每个 Release 强制的源码快照，无法删除，任何仓库都一样。）
 
 CI 会在**源文件哈希不符**时直接失败（不会产出错误的包），因此 Tailscale 换版后不会静默出错。
 
