@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Tailscale Windows 界面汉化补丁器 v7（v7：识别存进内存的字符串长度，见 decl 处注释）
+"""Tailscale Windows 界面汉化补丁器 v8（v8：数据段 {ptr,len} 头长度不符也判为重叠并拒绝；跨字面量匹配告警）
+原 v7：识别存进内存的字符串长度，见 decl 处注释
 原 v6
 = v5（保长替换 + 扩容 + 重叠字面量否定检查）+ 一条对照表转义解析：
 
@@ -163,6 +164,37 @@ def ptr_heads(v, L):
     return res
 
 
+def ptr_heads_other_len(v, L):
+    """v8：数据段里指向同一地址、但长度 != L 的 {ptr,len} 字符串头。
+
+    说明这段字节同时是**另一条更长（或更短）字面量**的开头（Go 链接器会把
+    字符串常量首尾相接地排布，"Open" 可能就是 "Open admin console" 的前 4 字节）。
+    原地改写会连带改坏那条字面量，因此视同「声明长度不符」拒绝。"""
+    res = []
+    needle = struct.pack('<Q', v)
+    j = orig.find(needle)
+    while j >= 0:
+        if off2sec(j) in ('.data', '.rdata'):
+            n = struct.unpack_from('<Q', orig, j + 8)[0]
+            if 0 < n <= 4096 and n != L:
+                res.append((j, n))
+        j = orig.find(needle, j + 1)
+    return res
+
+
+_lea_targets = sorted(leas)
+
+
+def interior_refs(v, L):
+    """v8：落在 (v, v+L) 内部的 LEAQ 目标 —— 说明这段字节里**还拼着别的字面量**。"""
+    i = bisect.bisect_right(_lea_targets, v)
+    out = []
+    while i < len(_lea_targets) and _lea_targets[i] < v + L:
+        out.append(_lea_targets[i])
+        i += 1
+    return out
+
+
 # ---------- 扩容区 ----------
 rsrc = [s for s in sects if s[0] == '.rsrc'][0]
 slack_off = rsrc[3] + rsrc[2]
@@ -239,6 +271,7 @@ say('')
 n_ok = n_grow = 0
 skipped = []
 conflicts = []
+warns = []
 
 for en, zh in entries:
     b, z = en.encode(), zh.encode()
@@ -256,10 +289,11 @@ for en, zh in entries:
         v = off2va(o)
         # —— v5 新增：声明长度不一致 -> 判定为更长字面量内部，拒绝 ——
         bad = [d for d in decl.get(v, set()) if d != L]
+        bad += [n for (_, n) in ptr_heads_other_len(v, L)]
         if bad:
             n_rej += 1
             conflicts.append('  REJECT %-30s @0x%x(VA=0x%x) 声明长度=%s != %d'
-                             % (en, o, v, sorted(decl.get(v, set())), L))
+                             % (en, o, v, sorted(set(bad)), L))
             continue
         refs = []
         for (ioff, size) in leas.get(v, []):
@@ -286,6 +320,15 @@ for en, zh in entries:
         skipped.append((en, zh, 'no-ref(%d副本)' % len(offs)))
         continue
 
+    # v8：原地改写前提示「这段字节内部还有别的引用点」——通常意味着英文串其实是
+    # 两条相邻字面量拼出来的（如 "Tailscale " + "Start/Stop"），或是更长字面量的一段。
+    # 只告警、不拒绝（现有对照表里这类条目的最终效果已人工确认），新加条目时务必复核。
+    if Z <= L:
+        for (o, refs) in matched:
+            inner = interior_refs(off2va(o), L)
+            if inner:
+                warns.append('  WARN  %-30s @VA=0x%x 内部还有 %d 处引用点（偏移 %s），疑似跨字面量匹配，请人工复核'
+                             % (en, off2va(o), len(inner), ','.join('+%d' % (t - off2va(o)) for t in inner[:6])))
     if Z <= L:
         pad = b' ' * (L - Z)
         for (o, refs) in matched:
@@ -323,6 +366,11 @@ say('')
 say('保长替换: %d 条    扩容: %d 条    未处理: %d 条' % (n_ok, n_grow, len(skipped)))
 for en, zh, why in skipped:
     say('   SKIP [%s] %s -> %s' % (why, en, zh))
+if warns:
+    say('')
+    say('跨字面量告警（只提示，不影响产物）:')
+    for w in warns:
+        say(w)
 if conflicts:
     say('')
     say('因「声明长度不符」被拒（重叠字面量保护）:')

@@ -129,8 +129,22 @@ def main(argv):
                            "    清单 : %s\n"
                            "    实际 : %s" % (name, got, real))
 
+    # 3) 一键脚本里写死的汉化版哈希（安装时用来核对落地文件）必须等于本次构建
+    #    —— 否则用户按方式 C 安装会被脚本以「SHA256 不符」拒绝。
+    bat = os.path.join(REPO, "scripts", "install_zh.bat")
+    if os.path.isfile(bat):
+        import re
+        m = re.search(rb'set "ZH_SHA=([0-9a-fA-F]{64})"', open(bat, "rb").read())
+        if not m:
+            bad.append("scripts/install_zh.bat 里找不到 ZH_SHA（汉化版哈希）")
+        elif m.group(1).decode().lower() != built_hash:
+            bad.append("scripts/install_zh.bat 的 ZH_SHA 过期（需手工改成本次构建的哈希）\n"
+                       "    脚本 : %s\n"
+                       "    本次构建 : %s" % (m.group(1).decode().lower(), built_hash))
+
     if not bad:
         print("OK: prebuilt 与本次构建一致（%s）" % built_hash)
+        print("OK: install_zh.bat 的 ZH_SHA 与本次构建一致")
         print("OK: SHA256SUMS.txt 校验通过（%d 条）" % len(ENTRIES))
         return 0
 

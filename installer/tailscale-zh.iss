@@ -39,7 +39,13 @@
 ; 随包的官方安装包文件名（若提供）
 #define MsiName     "tailscale-setup.msi"
 #define MyPublisher "guoxpeng"
-#define MyUrl       "https://github.com/guoxpeng/Tailscale"
+#define MyUrl       "https://github.com/guoxpeng/tailscale-zh"
+; 官方 MSI 整包 SHA256（= pkgs.tailscale.com 公布的 tailscale-setup-1.104.1-amd64.msi.sha256）。
+; 安装器在以管理员身份调用 msiexec 之前再核对一次，与 CI 的下载校验是同一个值。
+#define MsiSha256   "6da8bcdb0d45a214cae0e8a88c2987ad48dec134bf04dffb9c05f1354c02b0b4"
+; 官方 1.104.1 原版 tailscale-ipn.exe（MSI 内 ClientGUIx64）的 SHA256。
+; 卸载 / 还原时用它确认 .orig 备份确实是官方原版，而不是别的东西。
+#define OrigSha256  "0c3c56a6626c9f71a32fb307dbda0c810c94a89d66fed158258da6f043004f9c"
 
 ; 编译期探测官方 MSI 是否随包提供 —— 决定走「一体化」还是「仅替换」。
 ; 注意：MSI 本身不入库（.gitignore 排除 *.msi），由构建流程临时下载到仓库根目录。
@@ -292,9 +298,12 @@ var
   Cmd: String;
 begin
   Result := False;
-  Cmd := '/c tasklist /FI "IMAGENAME eq ' + EXE_NAME + '" /NH | ' +
+  { tasklist 同样写绝对路径、并把工作目录固定在 System32：cmd 解析不带路径的命令时
+    会**先查当前目录**再查 PATH，而提权安装器的当前目录可能是用户的「下载」文件夹 ——
+    那里若被放了个 tasklist.bat / tasklist.exe，就会以管理员身份被执行。 }
+  Cmd := '/c ' + ExpandConstant('{sys}') + '\tasklist.exe /FI "IMAGENAME eq ' + EXE_NAME + '" /NH | ' +
          ExpandConstant('{sys}') + '\find.exe /i "' + EXE_NAME + '" >nul';
-  if Exec(ExpandConstant('{cmd}'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, Rc) then
+  if Exec(ExpandConstant('{cmd}'), Cmd, ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, Rc) then
     Result := (Rc = 0);
 end;
 
@@ -709,6 +718,14 @@ begin
     Exit;   { 保持 False，由调用方决定如何提示 }
   end;
 
+  { 以管理员身份执行之前，核对随包 MSI 的整包哈希（纵深防御：Inno 6.5+ 提权时
+    临时目录已设为普通用户不可写，这里再兜一道，防止被替换成别的 MSI）。 }
+  if LowerCase(GetSHA256OfFile(MsiPath)) <> '{#MsiSha256}' then
+  begin
+    Log('!! 随包官方 MSI 的 SHA256 与预期不符，拒绝执行: ' + MsiPath);
+    Exit;   { 保持 False，由调用方提示并中止 }
+  end;
+
   Log('未检测到 Tailscale 服务，开始静默安装官方组件: ' + MsiPath);
   R := Exec(ExpandConstant('{sys}\msiexec.exe'),
             '/i "' + MsiPath + '" /qn /norestart TS_NOLAUNCH=1',
@@ -931,6 +948,16 @@ begin
     注意 Base 可能**本来就不存在** —— 服务与 tailscaled.exe 都在、唯独界面程序
     被删掉的残缺安装就是这种状态。此时没有东西可备份，直接往下走交给
     ReplaceExe 就位即可，不能因为「备份失败」把整个安装中止掉。 }
+  { 已有的 .orig 若不是官方 1.104.1 原版（损坏 / 来历不明），而当前文件恰好是官方原版，
+    就用当前文件重新备份 —— 否则卸载时将无法还原（卸载流程会核对 .orig 的 SHA256）。 }
+  if FileExists(Base) and FileExists(Bak) then
+    if (LowerCase(GetSHA256OfFile(Bak)) <> '{#OrigSha256}') and
+       (LowerCase(GetSHA256OfFile(Base)) = '{#OrigSha256}') then
+    begin
+      Log('现有备份不是官方原版，改用当前的官方原版重新备份');
+      DeleteFile(Bak);
+    end;
+
   if FileExists(Base) and (not FileExists(Bak)) then
   begin
     if not CopyFile(Base, Bak, False) then
@@ -1018,9 +1045,38 @@ begin
   Log('汉化补丁已全部就位，交还给安装程序收尾');
 end;
 
+{ 卸载后把托盘程序拉回来（只在卸载前它本来就在运行时）。
+
+  Windows 版 Tailscale 默认（非无人值守模式）随用户会话 / 托盘程序运行，
+  卸载流程为了替换文件必须先结束托盘程序 —— 不拉回来，这台机器就会一直断开，
+  直到用户自己从开始菜单重新打开 Tailscale。
+
+  卸载阶段不能用 ExecAsOriginalUser（会抛致命错误），而 Exec 会以提权身份启动 GUI
+  （官方不支持）。所以这里只走「Explorer 转交」：explorer.exe 会把启动请求交给
+  当前会话里正在运行的那个（未提权的）资源管理器，拉起来的是普通权限进程。 }
+procedure RelaunchTrayAfterUninstall();
+var
+  Rc: Integer;
+begin
+  if UninstallSilent() then
+  begin
+    Log('静默卸载：不自动拉起托盘程序');
+    Exit;
+  end;
+  if not FileExists(TsExe()) then
+    Exit;
+  if Exec(ExpandConstant('{win}\explorer.exe'), '"' + TsExe() + '"', '',
+          SW_SHOWNORMAL, ewNoWait, Rc) then
+    Log('已通过 Explorer 转交重新启动托盘程序')
+  else
+    Log('重新启动托盘程序失败，可从开始菜单手动打开 Tailscale');
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Base, Bak, Tmp: String;
+  Sz: Integer;
+  TrayWasRunning: Boolean;
 begin
   if CurUninstallStep <> usUninstall then
     Exit;
@@ -1038,7 +1094,36 @@ begin
     Exit;
   end;
 
-  KillTray();
+  { ===== 还原前的版本核对（以前完全没做） =====
+    官方的「自动安装更新」或手动装新版 MSI，会把 tailscale-ipn.exe 直接换成**更新的
+    官方版本**（汉化随之失效），而 .orig 还停留在 1.104.1。此时若照旧把 .orig 还原
+    回去，界面程序就会被**降级**成 1.104.1，与已升级的 tailscaled 服务版本不一致。
+    所以：
+      1) .orig 必须真的是官方 1.104.1 原版（SHA256 核对）；
+      2) 当前的 tailscale-ipn.exe 必须仍是 1.104.1 体系（汉化版与原版同为 EXPECT_SIZE 字节）。
+    任一不满足就不动当前文件，只清掉过期 / 来历不明的备份。 }
+  if LowerCase(GetSHA256OfFile(Bak)) <> '{#OrigSha256}' then
+  begin
+    Log('!! 备份 ' + Bak + ' 不是官方 1.104.1 原版（SHA256 不符），不还原，保留当前程序');
+    SuppressibleMsgBox('备份文件 ' + Bak + ' 不是官方 {#MyTsVersion} 原版，已跳过还原，' + #13#10 +
+           '当前的 ' + EXE_NAME + ' 保持不变。如界面仍是中文，请从官网重新安装 Tailscale。',
+           mbError, MB_OK, IDOK);
+    Exit;
+  end;
+  if FileExists(Base) then
+  begin
+    if not FileSize(Base, Sz) then
+      Sz := -1;
+    if (Sz > 0) and (Sz <> EXPECT_SIZE) then
+    begin
+      Log('当前 ' + EXE_NAME + ' 为 ' + IntToStr(Sz) + ' 字节，已不是 {#MyTsVersion}（多半已被官方更新覆盖），' +
+          '不用旧备份降级；删除过期备份 ' + Bak);
+      DeleteFile(Bak);
+      Exit;
+    end;
+  end;
+
+  TrayWasRunning := KillTray();
 
   { 与安装流程同一套原则：不「先删后写」，全程 rename，
     保证 tailscale-ipn.exe 任何时刻都不是残缺文件
@@ -1072,12 +1157,13 @@ begin
            '请先退出 Tailscale 托盘程序，再手动把 ' + Bak + ' 改名为 ' + Base + '。',
            mbError, MB_OK, IDOK);
 
-  { 这里刻意**不**再拉起托盘程序，原因有两条：
-      1) ExecAsOriginalUser 在卸载阶段会抛致命异常
-         （Runtime error: Cannot call "ExecAsOriginalUser" function during Uninstall）；
-      2) Inno 的 [UninstallRun] 段不支持 runasoriginaluser，只支持 runascurrentuser，
-         而卸载器此时已经提权，用它拉起会让 Tailscale GUI 以管理员身份运行
-         （Tailscale 官方不支持 GUI 提权运行）。
-    托盘由用户从开始菜单重新打开即可，tailscaled 服务与官方程序都不受影响。 }
-  Log('汉化已卸下，官方版已还原；托盘程序已退出，可从开始菜单重新打开 Tailscale。');
+  { 卸载前托盘本来在跑，就把它拉回来，否则非无人值守模式下这台机器会一直断开。
+    不能用 ExecAsOriginalUser（卸载阶段会抛致命异常），也不能用 UninstallRun 段
+    （只支持 runascurrentuser，会以管理员身份拉起 GUI，官方不支持）——
+    所以只走 Explorer 转交，见 RelaunchTrayAfterUninstall。 }
+  if TrayWasRunning then
+    RelaunchTrayAfterUninstall()
+  else
+    Log('卸载前托盘程序未在运行，不自动拉起');
+  Log('汉化已卸下，官方版已还原。');
 end;
