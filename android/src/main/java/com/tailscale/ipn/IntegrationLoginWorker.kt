@@ -7,67 +7,23 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import com.tailscale.ipn.ui.localapi.Client
-import com.tailscale.ipn.ui.model.Ipn
 import com.tailscale.ipn.util.TSLog
-import kotlinx.coroutines.CompletableDeferred
 
 /**
- * Test-only worker used by emulator integration tests to log a debug APK into a local testcontrol
- * server with an auth key.
+ * 上游仅供模拟器集成测试使用的 worker：用传入的 control_url + auth_key 登录。
  *
- * IPNReceiver only enqueues this worker when BuildConfig.DEBUG is true. Release builds do not
- * expose the broadcast entry point, and minified final APKs strip this unreachable debug-only path.
+ * 汉化版已禁用：本分支的发布包由 assembleDebug 构建（BuildConfig.DEBUG 恒为 true），
+ * 上游“仅调试包可用”的保护在这里无效，任意应用都能借此把设备登录到攻击者的控制服务器。
+ * 因此 IPNReceiver 已移除 com.tailscale.ipn.integration.LOGIN 入口，这里也无条件返回失败，
+ * 即使被其他途径排入 WorkManager 也不会执行登录。
  */
 class IntegrationLoginWorker(context: Context, params: WorkerParameters) :
     CoroutineWorker(context, params) {
   override suspend fun getForegroundInfo(): ForegroundInfo = workerForegroundInfo()
 
   override suspend fun doWork(): Result {
-    if (!BuildConfig.DEBUG) {
-      return Result.failure()
-    }
-
-    val controlURL = inputData.getString(EXTRA_CONTROL_URL)
-    val authKey = inputData.getString(EXTRA_AUTH_KEY)
-    if (controlURL.isNullOrBlank() || authKey.isNullOrBlank()) {
-      TSLog.e(TAG, "missing $EXTRA_CONTROL_URL or $EXTRA_AUTH_KEY")
-      return Result.failure()
-    }
-
-    return try {
-      login(controlURL, authKey)
-      Result.success()
-    } catch (e: Exception) {
-      TSLog.e(TAG, "integration login failed: $e")
-      Result.failure()
-    }
-  }
-
-  private suspend fun login(controlURL: String, authKey: String) {
-    val app = App.get()
-    app.startForegroundForLogin()
-
-    val client = Client(app.applicationScope)
-    val maskedPrefs =
-        Ipn.MaskedPrefs().apply {
-          ControlURL = controlURL
-          LoggedOut = false
-        }
-
-    val prefs = await<Ipn.Prefs> { client.editPrefs(maskedPrefs, it) }.getOrThrow()
-    prefs.WantRunning = true
-
-    val opts = Ipn.Options(UpdatePrefs = prefs, AuthKey = authKey)
-    await<Unit> { client.start(opts, it) }.getOrThrow()
-    await<Unit> { client.startLoginInteractive(it) }.getOrThrow()
-    app.startVPN()
-  }
-
-  private suspend fun <T> await(call: ((kotlin.Result<T>) -> Unit) -> Unit): kotlin.Result<T> {
-    val result = CompletableDeferred<kotlin.Result<T>>()
-    call { result.complete(it) }
-    return result.await()
+    TSLog.w(TAG, "integration login is disabled in this build")
+    return Result.failure()
   }
 
   companion object {

@@ -40,6 +40,8 @@ class SettingsViewModel : IpnViewModel() {
   val isSplitTunnelEnabled: StateFlow<Boolean> = MutableStateFlow(false)
   // 代理模式：使用 tsnet 代理而不是 VPN
   val isProxyModeEnabled: StateFlow<Boolean> = MutableStateFlow(false)
+  // 允许其他应用（Tasker 等）通过广播控制 VPN，默认关闭
+  val isExternalVpnControlEnabled: StateFlow<Boolean> = MutableStateFlow(false)
 
   init {
     isClientRemoteLoggingEnabled.set(App.get().isClientLoggingEnabled())
@@ -49,6 +51,7 @@ class SettingsViewModel : IpnViewModel() {
     val prefs = App.get().getSharedPreferences("proxy_settings", android.content.Context.MODE_PRIVATE)
     val savedProxyMode = prefs.getBoolean("proxy_mode_enabled", false)
     isProxyModeEnabled.set(savedProxyMode)
+    isExternalVpnControlEnabled.set(App.get().isExternalVpnControlAllowed())
 
     viewModelScope.launch {
       Notifier.netmap.collect { netmap -> isAdmin.set(netmap?.SelfNode?.isAdmin ?: false) }
@@ -78,5 +81,10 @@ class SettingsViewModel : IpnViewModel() {
 
   fun toggleProxyMode() {
     isProxyModeEnabled.set(!isProxyModeEnabled.value)
+  }
+
+  fun toggleExternalVpnControl() {
+    isExternalVpnControlEnabled.set(!isExternalVpnControlEnabled.value)
+    App.get().setExternalVpnControlAllowed(isExternalVpnControlEnabled.value)
   }
 }

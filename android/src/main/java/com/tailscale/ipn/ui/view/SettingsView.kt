@@ -71,6 +71,7 @@ fun SettingsView(
   val isClientRemoteLoggingEnabled by viewModel.isClientRemoteLoggingEnabled.collectAsState()
   val isSplitTunnelEnabled by viewModel.isSplitTunnelEnabled.collectAsState()
   val isProxyModeEnabled by viewModel.isProxyModeEnabled.collectAsState()
+  val isExternalVpnControlEnabled by viewModel.isExternalVpnControlEnabled.collectAsState()
   var showDisableLoggingDialog by remember { mutableStateOf(false) }
 
   Scaffold(
@@ -194,6 +195,14 @@ fun SettingsView(
           }
         }
       }
+
+      Lists.ItemDivider()
+      Setting.Switch(
+          R.string.allow_external_vpn_control,
+          subtitle = stringResource(R.string.allow_external_vpn_control_subtitle),
+          isOn = isExternalVpnControlEnabled,
+          onToggle = { viewModel.toggleExternalVpnControl() },
+      )
 
       if (!AndroidTVUtil.isAndroidTV()) {
         Lists.ItemDivider()

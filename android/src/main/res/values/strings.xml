@@ -403,4 +403,6 @@
     <string name="copy_magic_dns_address">Copy MagicDNS hostname</string>
     <string name="copy_ipv4_address">Copy IPv4</string>
     <string name="copy_ipv6_address">Copy IPv6</string>
+    <string name="allow_external_vpn_control">Allow other apps to control VPN</string>
+    <string name="allow_external_vpn_control_subtitle">When on, automation apps such as Tasker or MacroDroid can connect/disconnect the VPN or switch exit nodes via broadcasts. When off, these broadcasts are ignored.</string>
 </resources>
