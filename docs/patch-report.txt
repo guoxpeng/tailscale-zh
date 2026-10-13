@@ -155,12 +155,17 @@ OK    Don't have an account? <a href="https://login.tailscale.com/start">Sign up
 
 保长替换: 120 条    扩容: 19 条    未处理: 0 条
 
+跨字面量告警（只提示，不影响产物）:
+  WARN  Tailscale Start/Stop           @VA=0x140929e54 内部还有 1 处引用点（偏移 +10），疑似跨字面量匹配，请人工复核
+
 因「声明长度不符」被拒（重叠字面量保护）:
   REJECT Connected                      @0x92af2f(VA=0x14092bf2f) 声明长度=[12] != 9
   REJECT Preferences                    @0x92e3de(VA=0x14092f3de) 声明长度=[15] != 11
   REJECT Exit                           @0x928de6(VA=0x140929de6) 声明长度=[10] != 4
   REJECT Exit                           @0x928df0(VA=0x140929df0) 声明长度=[10] != 4
   REJECT Exit                           @0x928e7c(VA=0x140929e7c) 声明长度=[10] != 4
+  REJECT Exit                           @0x92a3f4(VA=0x14092b3f4) 声明长度=[11] != 4
+  REJECT Exit                           @0x92c686(VA=0x14092d686) 声明长度=[13] != 4
   REJECT Exit                           @0x92e3cf(VA=0x14092f3cf) 声明长度=[15] != 4
   REJECT Exit                           @0x937a93(VA=0x140938a93) 声明长度=[22] != 4
   REJECT Exit                           @0x937abf(VA=0x140938abf) 声明长度=[22] != 4
@@ -171,11 +176,25 @@ OK    Don't have an account? <a href="https://login.tailscale.com/start">Sign up
   REJECT A security update from version %s to %s is available. @0x96931a(VA=0x14096a31a) 声明长度=[124] != 53
   REJECT An update from version %s to %s is available. @0x968b30(VA=0x140969b30) 声明长度=[116] != 45
   REJECT Open                           @0x925bf6(VA=0x140926bf6) 声明长度=[7] != 4
+  REJECT Open                           @0x9293d6(VA=0x14092a3d6) 声明长度=[10] != 4
+  REJECT Open                           @0x9293e0(VA=0x14092a3e0) 声明长度=[10] != 4
+  REJECT Open                           @0x9293ea(VA=0x14092a3ea) 声明长度=[10] != 4
   REJECT Open                           @0x92a365(VA=0x14092b365) 声明长度=[11] != 4
   REJECT Open                           @0x92aee7(VA=0x14092bee7) 声明长度=[12] != 4
   REJECT Open                           @0x92af0b(VA=0x14092bf0b) 声明长度=[12] != 4
+  REJECT Open                           @0x92b55f(VA=0x14092c55f) 声明长度=[12] != 4
   REJECT Open                           @0x92c305(VA=0x14092d305) 声明长度=[13] != 4
   REJECT Open                           @0x92c387(VA=0x14092d387) 声明长度=[13] != 4
+  REJECT Open                           @0x92ca2e(VA=0x14092da2e) 声明长度=[13] != 4
+  REJECT Open                           @0x92d82d(VA=0x14092e82d) 声明长度=[14] != 4
+  REJECT Open                           @0x92e99c(VA=0x14092f99c) 声明长度=[15] != 4
+  REJECT Open                           @0x92f0c2(VA=0x1409300c2) 声明长度=[15] != 4
+  REJECT Open                           @0x92fe44(VA=0x140930e44) 声明长度=[16] != 4
+  REJECT Open                           @0x92fed4(VA=0x140930ed4) 声明长度=[16] != 4
+  REJECT Open                           @0x93212d(VA=0x14093312d) 声明长度=[18] != 4
+  REJECT Open                           @0x9336c6(VA=0x1409346c6) 声明长度=[19] != 4
+  REJECT Open                           @0x933c1e(VA=0x140934c1e) 声明长度=[19] != 4
+  REJECT Open                           @0x9373d3(VA=0x1409383d3) 声明长度=[21] != 4
   REJECT Failed connecting to the Tailscale service @0x9561c3(VA=0x1409571c3) 声明长度=[47] != 42
 
 输出: build\tailscale-ipn.zh.exe (29622776 字节)  改变字节数=4881  扩容区已用 356/504
