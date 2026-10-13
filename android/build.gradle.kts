@@ -28,8 +28,12 @@ android {
     // 汉化版固定版本号（不用上游按构建时间计算的 versionCode / tailscale.version），
     // 发版时手动改这两行；android-release.yml 从这里读取 versionName 作为 Release 标签。
     // versionCode 必须单调递增，否则无法覆盖安装升级。
-    versionCode = 110400106
-    versionName = "1.104.1-fix4"
+    // 包名与官方同为 com.tailscale.ipn：versionCode 低于官方（官方 1.104.1 = 298567190）时，
+    // 谷歌商店会一直提示「有更新」，实际只是号码小。所以统一加 10 亿前缀：
+    //   1_000_000_000 + 1MMMPPPNN（1.104.1 第 N 次修订 → 1110400107），
+    // 既比旧号 110400106 大（可覆盖安装），也远高于官方按时间生成的号码（上限 2100000000）。
+    versionCode = 1110400107
+    versionName = "1.104.1-fix5"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
     ndk {
