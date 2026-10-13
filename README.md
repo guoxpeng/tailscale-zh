@@ -41,25 +41,35 @@
 
 > ℹ️ **每个 Release 里同时挂着 Windows 与 Android 两个安装包** ——
 > `Tailscale-zh-*-setup.exe`（Windows 一体化安装包）与 `Tailscale-zh-*.apk`（本端），
-> 按扩展名取自己需要的那个即可。两条流水线写同一个 Release（标签 `v<版本号>`），
-> 各自只覆盖自己那个文件。
+> 按扩展名取自己需要的那个即可。两个包由同一条发版流水线一起构建、一起发到 Release `v<版本号>`。
 
 > ⚠️ 安装前需卸载官方版 Tailscale（签名不同），安装后重新登录。
 
 ## 自动打包与发布
 
-先把 `android/build.gradle.kts` 里的 `versionName` / `versionCode` 改好（versionCode 必须递增），
-再打一个标签，GitHub Actions 就会自动构建**全架构 APK** 并写进对应版本的 Release：
+**打一个 `v<版本号>` 标签即可同时出 APK 和 exe。**
+
+1. 先把 `android/build.gradle.kts` 里的 `versionName` / `versionCode` 改好（versionCode 必须递增）并推到 `main`；
+2. 打标签并推送（标签必须是 `v` + versionName，例如 versionName = `1.104.1-fix4`）：
 
 ```bash
-git tag android-v1.104.1          # 标签格式：android-v<版本号>
-git push origin android-v1.104.1
+git tag v1.104.1-fix4
+git push origin v1.104.1-fix4
 ```
 
-- 发版标签是 **`v<版本号>`**（如 `v1.104.1`）—— 与 Windows 侧**共用同一个 Release**，
-  所以打开该 Release 能同时看到 apk 与 exe；本流水线只覆盖 apk，不动 exe。
-- 每次发布只追加**一个 apk**（全架构：arm64-v8a + armeabi-v7a + x86 + x86_64）。
-- 也可以在仓库 Actions 页面手动触发：只构建并保存产物，不发布 Release。
+GitHub Actions（[`.github/workflows/release.yml`](.github/workflows/release.yml)）会在同一次运行里：
+
+- 在 `main`（标签所指提交）构建**全架构 APK**（arm64-v8a + armeabi-v7a + x86 + x86_64）→ `Tailscale-zh-<版本号>.apk`；
+- 检出 `pc` 分支构建 Windows 一体化安装包 → `Tailscale-zh-<版本号>-setup.exe`
+  （文件名带发版版本号；安装包内部登记的官方组件版本仍是 1.104.1，汉化补丁只适配官方 1.104.1）；
+- 两个都构建成功后，一起发到 Release **`v<版本号>`**，并附 `SHA256SUMS.txt`。
+
+注意：
+
+- 标签与 versionName 不一致时流水线会**直接失败**，不会发出版本号对不上的 Release。
+- 在 Actions 页面手动触发 `release.yml`（workflow_dispatch）只构建、上传产物，**不发布** Release，适合发版前试跑。
+- 旧的 `android-v*`（本分支）和 `pc-v*`（`pc` 分支）标签**已不再发版**，
+  `android-release.yml` / `build-pc-installer.yml` 只保留手动构建，避免重复发版。
 - 签名用的是仓库内 [`.ci/android-debug.keystore`](.ci/) 这把**固定调试密钥**，
   因此各版本签名一致，用户可**直接覆盖安装升级**，不必反复卸载重装。
 
