@@ -36,6 +36,9 @@ func OnDNSConfigChanged(ifname string) {
 	case onDNSConfigChanged <- ifname:
 	default:
 	}
+	// Proxy mode (tsnet) has its own network monitor; forward the change so
+	// it rebinds promptly instead of waiting for Android's 10-minute poll.
+	notifyProxyNetworkChanged()
 }
 
 // OnGatewayChanged is called when LinkProperties provides an updated default gateway IP.

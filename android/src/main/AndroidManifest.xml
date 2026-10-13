@@ -128,11 +128,6 @@
         </activity>
 
         <service
-            android:name=".ProxyService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync">
-        </service>
-        <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="systemExempted"
             tools:node="merge" />

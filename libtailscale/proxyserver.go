@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -17,6 +18,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"tailscale.com/tsnet"
@@ -24,18 +26,18 @@ import (
 
 // ProxyServer runs a SOCKS5/HTTP proxy backed by tsnet.
 type ProxyServer struct {
-	ts         *tsnet.Server
-	socksLn    net.Listener
-	httpLn     net.Listener
-	socksPort  int
-	httpPort   int
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	dataDir    string
-	hostname   string
-	running    bool
-	mu         sync.Mutex
+	ts             *tsnet.Server
+	socksLn        net.Listener
+	httpLn         net.Listener
+	socksPort      int
+	httpPort       int
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	dataDir        string
+	hostname       string
+	running        bool
+	mu             sync.Mutex
 	onStatusChange func(string)
 }
 
@@ -104,7 +106,9 @@ func (ps *ProxyServer) Start() error {
 	}
 
 	// Start SOCKS5 proxy
-	socksAddr := fmt.Sprintf(":%d", ps.socksPort)
+	// 只监听回环地址：监听 ":port"（0.0.0.0）会让同一 Wi-Fi/热点下的任何设备
+	// 免认证地借用本机代理直接进入 tailnet。
+	socksAddr := net.JoinHostPort("127.0.0.1", fmt.Sprint(ps.socksPort))
 	ps.socksLn, err = net.Listen("tcp", socksAddr)
 	if err != nil {
 		ps.ts.Close()
@@ -114,7 +118,7 @@ func (ps *ProxyServer) Start() error {
 	go ps.socksLoop()
 
 	// Start HTTP proxy
-	httpAddr := fmt.Sprintf(":%d", ps.httpPort)
+	httpAddr := net.JoinHostPort("127.0.0.1", fmt.Sprint(ps.httpPort))
 	ps.httpLn, err = net.Listen("tcp", httpAddr)
 	if err != nil {
 		ps.socksLn.Close()
@@ -125,7 +129,8 @@ func (ps *ProxyServer) Start() error {
 	go ps.httpLoop()
 
 	ps.running = true
-	log.Printf("Proxy server started: SOCKS5 on :%d, HTTP on :%d", ps.socksPort, ps.httpPort)
+	activeProxy.Store(ps)
+	log.Printf("Proxy server started: SOCKS5 on 127.0.0.1:%d, HTTP on 127.0.0.1:%d", ps.socksPort, ps.httpPort)
 
 	if ps.onStatusChange != nil {
 		ps.onStatusChange("running")
@@ -143,6 +148,7 @@ func (ps *ProxyServer) Stop() {
 	}
 	ps.running = false
 	ps.mu.Unlock()
+	activeProxy.CompareAndSwap(ps, nil)
 
 	ps.cancel()
 
@@ -234,24 +240,24 @@ func (ps *ProxyServer) GetPeers() string {
 	if err != nil {
 		return "[]"
 	}
-	
+
 	// Build peer list
 	type PeerInfo struct {
-		Name      string `json:"name"`
-		Hostname  string `json:"hostname"`
-		IPs       []string `json:"ips"`
-		Online    bool `json:"online"`
-		OS        string `json:"os"`
-		LastSeen  string `json:"lastSeen"`
+		Name     string   `json:"name"`
+		Hostname string   `json:"hostname"`
+		IPs      []string `json:"ips"`
+		Online   bool     `json:"online"`
+		OS       string   `json:"os"`
+		LastSeen string   `json:"lastSeen"`
 	}
-	
+
 	peers := make([]PeerInfo, 0, len(status.Peer))
 	for _, peer := range status.Peer {
 		ips := make([]string, 0, len(peer.TailscaleIPs))
 		for _, ip := range peer.TailscaleIPs {
 			ips = append(ips, ip.String())
 		}
-		
+
 		peers = append(peers, PeerInfo{
 			Name:     peer.DNSName,
 			Hostname: peer.HostName,
@@ -261,7 +267,7 @@ func (ps *ProxyServer) GetPeers() string {
 			LastSeen: peer.LastSeen.Format(time.RFC3339),
 		})
 	}
-	
+
 	// Convert to JSON
 	jsonBytes, err := json.Marshal(peers)
 	if err != nil {
@@ -281,8 +287,19 @@ func (ps *ProxyServer) socksLoop() {
 			case <-ps.ctx.Done():
 				return
 			default:
-				continue
 			}
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			// 之前这里直接 continue：监听器出错时会空转把一个 CPU 核打满、
+			// 耗电并被系统降频/杀进程。改为短暂退避后重试。
+			log.Printf("[Proxy] SOCKS5 accept error: %v", err)
+			select {
+			case <-ps.ctx.Done():
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
+			continue
 		}
 		ps.wg.Add(1)
 		go ps.handleSocks5(conn)
@@ -381,25 +398,7 @@ func (ps *ProxyServer) handleSocks5(conn net.Conn) {
 	// Success
 	conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 
-	// Bidirectional copy with context cancellation
-	done := make(chan struct{}, 2)
-	go func() {
-		defer func() { done <- struct{}{} }()
-		io.Copy(remote, conn)
-	}()
-	go func() {
-		defer func() { done <- struct{}{} }()
-		io.Copy(conn, remote)
-	}()
-	
-	// Wait for one direction to finish, then close both connections
-	select {
-	case <-done:
-	case <-ps.ctx.Done():
-	}
-	// Close both connections to unblock the other goroutine
-	conn.Close()
-	remote.Close()
+	pipeConns(ps.ctx, conn, remote)
 }
 
 // ===== HTTP Proxy =====
@@ -448,6 +447,10 @@ func (ps *ProxyServer) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Header.Del("Proxy-Connection")
 	r.RequestURI = ""
 	r.URL.Scheme = "http"
+	// 下面只转发「一个请求 + 它的响应」，之后连接被直接透传。若保持 keep-alive，
+	// 客户端会在同一连接上发第二个请求，但没人再读它，页面就会卡住直到超时。
+	// 强制 Connection: close，让服务端回完响应就关连接，客户端自然新开连接。
+	r.Close = true
 
 	if err := r.Write(remote); err != nil {
 		http.Error(w, "Write failed", http.StatusBadGateway)
@@ -501,30 +504,94 @@ func (ps *ProxyServer) handleHTTPConnect(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	client, _, err := hijacker.Hijack()
+	client, brw, err := hijacker.Hijack()
 	if err != nil {
 		target.Close()
 		return
 	}
 
-	client.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
-
-	done := make(chan struct{}, 2)
-	go func() {
-		defer func() { done <- struct{}{} }()
-		io.Copy(target, client)
-	}()
-	go func() {
-		defer func() { done <- struct{}{} }()
-		io.Copy(client, target)
-	}()
-	
-	// Wait for one direction to finish, then close both connections
-	select {
-	case <-done:
-	case <-r.Context().Done():
+	if _, err := client.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
+		target.Close()
+		client.Close()
+		return
 	}
-	// Close both connections to unblock the other goroutine
-	target.Close()
-	client.Close()
+
+	// 部分客户端会在 CONNECT 请求后不等 200 就紧跟着发数据（如 TLS ClientHello），
+	// 这些字节可能已被 http.Server 读进 bufio 缓冲区；原代码直接丢弃了它们，
+	// 会导致握手偶发卡住。先把缓冲区里的数据转给目标。
+	if brw != nil && brw.Reader.Buffered() > 0 {
+		buffered, _ := brw.Reader.Peek(brw.Reader.Buffered())
+		if _, err := target.Write(buffered); err != nil {
+			target.Close()
+			client.Close()
+			return
+		}
+	}
+
+	pipeConns(ps.ctx, client, target)
+}
+
+// closeWriter is implemented by TCP-like conns (net.TCPConn, gonet.TCPConn)
+// that support half-close.
+type closeWriter interface {
+	CloseWrite() error
+}
+
+// pipeConns relays data between a and b until both directions finish or ctx
+// is cancelled, then closes both. When one direction hits EOF it half-closes
+// the other side (CloseWrite) instead of tearing the whole connection down,
+// so protocols that send their request and then shut down writing still get
+// their full response.
+func pipeConns(ctx context.Context, a, b net.Conn) {
+	done := make(chan struct{}, 2)
+	cp := func(dst, src net.Conn) {
+		defer func() { done <- struct{}{} }()
+		io.Copy(dst, src)
+		if cw, ok := dst.(closeWriter); ok {
+			cw.CloseWrite()
+		} else {
+			// Can't half-close; closing is the only way to signal EOF.
+			dst.Close()
+		}
+	}
+	go cp(b, a)
+	go cp(a, b)
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			i = 2
+		}
+	}
+	a.Close()
+	b.Close()
+}
+
+// activeProxy is the running proxy, readable without taking globalProxyLock
+// (which StartProxy holds for up to 60s while tsnet comes up).
+var activeProxy atomic.Pointer[ProxyServer]
+
+// notifyProxyNetworkChanged tells the proxy's tsnet instance that the
+// device's network changed.
+//
+// On Android, netmon cannot watch netlink and falls back to a polling monitor
+// that only wakes every 10 minutes, relying on the app to inject events (the
+// VPN backend gets them via OnDNSConfigChanged -> backend.NetworkChanged).
+// The tsnet server used by proxy mode has its own netmon that previously
+// never received those events, so after a Wi-Fi <-> cellular switch its
+// magicsock kept using dead sockets/endpoints for up to 10 minutes: the
+// proxy appeared "disconnected" until it eventually recovered.
+func notifyProxyNetworkChanged() {
+	ps := activeProxy.Load()
+	if ps == nil || ps.ts == nil {
+		return
+	}
+	sys := ps.ts.Sys()
+	if sys == nil {
+		return
+	}
+	if nm, ok := sys.NetMon.GetOK(); ok && nm != nil {
+		nm.InjectEvent()
+	}
 }
