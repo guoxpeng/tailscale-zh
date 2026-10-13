@@ -28,8 +28,8 @@ android {
     // 汉化版固定版本号（不用上游按构建时间计算的 versionCode / tailscale.version），
     // 发版时手动改这两行；android-release.yml 从这里读取 versionName 作为 Release 标签。
     // versionCode 必须单调递增，否则无法覆盖安装升级。
-    versionCode = 110400104
-    versionName = "1.104.1-port"
+    versionCode = 110400105
+    versionName = "1.104.1-fix3"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
     ndk {
