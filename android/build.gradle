@@ -44,8 +44,8 @@ android {
         // (base = major*100000000 + minor*100000 + patch*10). AndroidTV builds
         // increment this by 1 in the Makefile's release-tv target so the two
         // variants are distinguishable in the Play Store.
-        versionCode 110400101
-        versionName "1.104.1"
+        versionCode 110400102
+        versionName "1.104.1-fix"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // slimBuild=true 时只打 arm64（手机用），否则打全架构
