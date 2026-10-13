@@ -5,24 +5,24 @@ name: Android CI
 # 既吵又占额度，因此取消 push 自动触发，只在 PR 或手动触发时运行。
 # 发布 APK 由 android-release.yml 负责，不要再往这里加构建/发布逻辑。
 on:
-  pull_request:
-    # all PRs on all branches
+  # 2026-10-13：pull_request 触发也已移除 —— 每个 PR 都以 exit code 2 失败（上游 make go-test /
+  # make test 与本地改动不兼容），只是噪音。需要时在 Actions 页面手动触发。
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     if: "!contains(github.event.head_commit.message, '[ci skip]')"
 
     steps:
       - name: Check out code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: "go.mod"
       - name: Switch to Java 21
-        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: "temurin"
           java-version: "21"
@@ -42,7 +42,7 @@ jobs:
         run: make tailscale-debug.apk
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tailscale-debug-apk
           path: tailscale-debug.apk

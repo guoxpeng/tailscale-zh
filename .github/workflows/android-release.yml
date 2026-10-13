@@ -19,21 +19,21 @@ concurrency:
 jobs:
   build:
     name: 构建（仅产物，不发布）
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: 拉取代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 安装 Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.22'
 
       # 上游 1.104 起改用 AGP 9.4 + Gradle 9.6，并在 gradle-daemon-jvm.properties 里
       # 指定 Gradle 守护进程用 JDK 21（与上游 CI 一致）。
       - name: 安装 Java 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -96,7 +96,7 @@ jobs:
             | grep -E "^package|^sdkVersion|^targetSdkVersion|^native-code|^application-label:"
 
       - name: 上传构建产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tailscale-zh-apk-${{ steps.ver.outputs.version }}
           path: Tailscale-zh-${{ steps.ver.outputs.version }}.apk
