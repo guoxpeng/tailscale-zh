@@ -16,6 +16,7 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 
 /**
@@ -127,8 +128,10 @@ class BuiltInBrowserActivity : AppCompatActivity() {
             )
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
-            settings.allowFileAccess = true
-            settings.allowContentAccess = true
+            // 只用来访问 tailnet 里的 http/https 服务，不需要读本机文件或 content:// 数据。
+            // 开着 JS 的同时允许 file/content 访问，会给恶意网页留下读取本机文件的口子。
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
         }
 
         // 配置代理
@@ -164,6 +167,19 @@ class BuiltInBrowserActivity : AppCompatActivity() {
         layout.addView(webView)
 
         setContentView(layout)
+
+        // Manifest 开启了 enableOnBackInvokedCallback（预测性返回），Android 13+ 上系统
+        // 不再调用 onBackPressed()，原来的「返回键先后退网页」失效，一按返回就直接关掉浏览器。
+        // 改用 OnBackPressedDispatcher，新旧系统都生效。
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (webView.canGoBack()) {
+                    webView.goBack()
+                } else {
+                    finish()
+                }
+            }
+        })
 
         // 加载欢迎页
         val initialUrl = intent.getStringExtra("url")
@@ -272,12 +288,12 @@ class BuiltInBrowserActivity : AppCompatActivity() {
         webView.loadUrl(targetUrl)
     }
 
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (webView.canGoBack()) {
-            webView.goBack()
-        } else {
-            super.onBackPressed()
+    override fun onDestroy() {
+        // 释放 WebView，避免 Activity 关闭后仍持有渲染进程/内存。
+        if (::webView.isInitialized) {
+            (webView.parent as? android.view.ViewGroup)?.removeView(webView)
+            webView.destroy()
         }
+        super.onDestroy()
     }
 }

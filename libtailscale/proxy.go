@@ -52,10 +52,12 @@ func StopProxy() {
 }
 
 // IsProxyRunning returns whether the proxy is running.
+//
+// 不能拿 globalProxyLock：StartProxy 在等待 tsnet 进入 Running 时会持锁最长 60 秒，
+// 而 App.startVPN() 在主线程上调用本函数，持锁会让「打开 VPN」卡住主线程直至 ANR。
+// activeProxy 只在代理真正启动成功后才被设置、Stop 时清空，语义与原来一致。
 func IsProxyRunning() bool {
-	globalProxyLock.Lock()
-	defer globalProxyLock.Unlock()
-	return globalProxy != nil && globalProxy.IsRunning()
+	return activeProxy.Load() != nil
 }
 
 // GetProxyAuthURL returns the auth URL if login is needed.
