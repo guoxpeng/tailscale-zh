@@ -40,8 +40,10 @@ ORIG_SHA256 = "0c3c56a6626c9f71a32fb307dbda0c810c94a89d66fed158258da6f043004f9c"
 ORIG_SIZE = 29622776
 
 # 用 tools/zh_win.tsv 打补丁后的确定性产物
-# （v7 对照表：140 条生效 = 保长 121 + 扩容 19；改动汉化表后此值必须同步更新）
-OUT_SHA256 = "38be3ebc4d5a7341e76e5caa75a0c62e06f8f5bb4cae31fd009cfb2f995eb4ae"
+# （v8 对照表：139 条生效 = 保长 120 + 扩容 19；改动汉化表后此值必须同步更新）
+# v8：去掉与 ipn.State 状态名表共用字节的 "Stopped"；补丁器识别存进内存的字符串长度，
+#     不再把 services.findSSH 里的 "OpenSSH" 当成 "Open" 改坏。
+OUT_SHA256 = "a5cf6c0c319c579a08137947b3e3f6a80e74ec1e1ba00ae519ac3ff21846b125"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PATCHER = os.path.join(HERE, "patch_zh.py")

@@ -4,7 +4,9 @@ Connected	已连接
 Connected. Click for options.	已连接，点击查看
 Disconnected. Click to connect.	未连接，点击连接
 Starting...	启动中
-Stopped	停止
+# Stopped 已移除：该字面量与 ipn.State.String() 的状态名表共用同一份字节，
+# 托盘把服务端发来的英文 BackendState 反查成 ipn.State 时会匹配不到 "Stopped"，
+# 断开状态被当成 NoState。宁可这一处显示英文。
 Logged out	已注销
 This device: %s (%s)	本机: %s (%s)
 Network devices	网络设备
