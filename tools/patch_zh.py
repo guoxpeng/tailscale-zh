@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Tailscale Windows 界面汉化补丁器 v6
+"""Tailscale Windows 界面汉化补丁器 v7（v7：识别存进内存的字符串长度，见 decl 处注释）
+原 v6
 = v5（保长替换 + 扩容 + 重叠字面量否定检查）+ 一条对照表转义解析：
 
   v6 新增：对照表的英文/中文列支持 \\r \\n \\t \\\\ \\xHH 转义。
@@ -70,6 +71,18 @@ md.skipdata = True
 RE_RIP = re.compile(r'\[rip ([+-]) (0x[0-9a-f]+)\]')
 RE_IMM = re.compile(r'^(0x[0-9a-f]+|\d+)$')
 
+RE_MEMSTORE = re.compile(r'^qword ptr \[(\w+)(?: ([+-] 0x[0-9a-f]+|[+-] \d+))?\], (\w+)$')
+RE_MEMIMM = re.compile(r'^qword ptr \[(\w+)(?: ([+-] 0x[0-9a-f]+|[+-] \d+))?\], (0x[0-9a-f]+|\d+)$')
+
+
+def _disp(g):
+    if not g:
+        return 0
+    sign, num = g.split(' ', 1)
+    v = int(num, 0)
+    return -v if sign == '-' else v
+
+
 insns = list(md.disasm_lite(data[tra:tra + trs], base))
 leas = {}      # tgt_va -> [(ioff, size)]
 decl = {}      # tgt_va -> set(声明长度)
@@ -102,6 +115,26 @@ for idx, (addr, size, mn, ops) in enumerate(insns):
                             decl_imm[(tgt, ioff)] = tra + (a2 - base) + s2 - 4
                         break
                 if m2 in ('ret', 'jmp', 'call'):
+                    break
+            # v7：结构体/栈上字符串头 —— `lea reg, [rip+X]` 之后把 reg 存进 [base+off]，
+            # 同时在附近用 `mov qword ptr [base+off+8], imm` 写入长度（Go 构造
+            # string 头或 []string 元素时的常见形态）。这种写法的长度不进寄存器，
+            # 上面的检测抓不到，导致「更长字面量的前缀」被当成短字符串误配
+            # （例：services.findSSH 里的 "OpenSSH" 被 "Open" 命中，进而把旁边
+            # filepath.Join 的参数个数 4 当成长度改成 6 —— 越界读栈，可能崩溃）。
+            lea_reg = ops.split(', ', 1)[0]
+            for j in range(idx + 1, min(idx + 3, len(insns))):
+                a2, s2, m2, o2 = insns[j]
+                mm = RE_MEMSTORE.match(o2) if m2 == 'mov' else None
+                if mm and mm.group(3) == lea_reg:
+                    mbase, moff = mm.group(1), _disp(mm.group(2))
+                    for k in range(max(0, idx - 4), min(idx + 6, len(insns))):
+                        a3, s3, m3, o3 = insns[k]
+                        m4 = RE_MEMIMM.match(o3) if m3 == 'mov' else None
+                        if m4 and m4.group(1) == mbase and _disp(m4.group(2)) == moff + 8:
+                            v = int(m4.group(3), 0)
+                            if 0 <= v <= 300:
+                                decl.setdefault(tgt, set()).add(v)
                     break
     elif mn == 'mov':
         last = ops.rsplit(', ', 1)[-1]

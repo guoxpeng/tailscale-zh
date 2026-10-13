@@ -4,7 +4,6 @@ OK    Connected                        -> 已连接                9->9 字节  
 OK    Connected. Click for options.    -> 已连接，点击查看           29->24 字节  副本=1  [无静态引用,唯一副本→保长替换]
 OK    Disconnected. Click to connect.  -> 未连接，点击连接           31->24 字节  副本=1  [无静态引用,唯一副本→保长替换]
 OK    Starting...                      -> 启动中                11->9 字节  副本=1
-OK    Stopped                          -> 停止                 7->6 字节  副本=1
 OK    Logged out                       -> 已注销                10->9 字节  副本=1
 OK    This device: %s (%s)             -> 本机: %s (%s)        20->15 字节  副本=1
 OK    Network devices                  -> 网络设备               15->12 字节  副本=1
@@ -133,7 +132,7 @@ OK    You have enabled a non-default log target. Doing without being told to by 
 GROW  E&xit                            -> 退出(&X)             5->10 字节  新VA=0x143ca4f4b  改动=1
 OK    &Settings                        -> &设置                9->7 字节  副本=1
 GROW  &Open Tailscale                  -> &打开 Tailscale      15->17 字节  新VA=0x143ca4f55  改动=1
-GROW  Open                             -> 打开                 4->6 字节  新VA=0x143ca4f66  改动=3
+GROW  Open                             -> 打开                 4->6 字节  新VA=0x143ca4f66  改动=2
 OK    The Tailscale service not installed on this machine -> 本机未安装 Tailscale 服务 51->32 字节  副本=1
 OK    The Tailscale service is stopped -> Tailscale 服务已停止    32->25 字节  副本=1
 OK    Failed connecting to the Tailscale service to query its state -> 无法连接 Tailscale 服务，无法获取其状态 61->53 字节  副本=1
@@ -154,7 +153,7 @@ OK    Tailscale makes it easy to securely connect
 all your team's devices together in minutes. -> Tailscale 让你在几分钟内安全地连接团队所有设备。 88->67 字节  副本=1
 OK    Don't have an account? <a href="https://login.tailscale.com/start">Sign up</a> -> 还没有账号？<a href="https://login.tailscale.com/start">注册</a> 78->72 字节  副本=1
 
-保长替换: 121 条    扩容: 19 条    未处理: 0 条
+保长替换: 120 条    扩容: 19 条    未处理: 0 条
 
 因「声明长度不符」被拒（重叠字面量保护）:
   REJECT Connected                      @0x92af2f(VA=0x14092bf2f) 声明长度=[12] != 9
@@ -171,9 +170,12 @@ OK    Don't have an account? <a href="https://login.tailscale.com/start">Sign up
   REJECT You are logged out.            @0x957406(VA=0x140958406) 声明长度=[48] != 19
   REJECT A security update from version %s to %s is available. @0x96931a(VA=0x14096a31a) 声明长度=[124] != 53
   REJECT An update from version %s to %s is available. @0x968b30(VA=0x140969b30) 声明长度=[116] != 45
+  REJECT Open                           @0x925bf6(VA=0x140926bf6) 声明长度=[7] != 4
+  REJECT Open                           @0x92a365(VA=0x14092b365) 声明长度=[11] != 4
   REJECT Open                           @0x92aee7(VA=0x14092bee7) 声明长度=[12] != 4
+  REJECT Open                           @0x92af0b(VA=0x14092bf0b) 声明长度=[12] != 4
   REJECT Open                           @0x92c305(VA=0x14092d305) 声明长度=[13] != 4
   REJECT Open                           @0x92c387(VA=0x14092d387) 声明长度=[13] != 4
   REJECT Failed connecting to the Tailscale service @0x9561c3(VA=0x1409571c3) 声明长度=[47] != 42
 
-输出: build\tailscale-ipn.zh.exe (29622776 字节)  改变字节数=4893  扩容区已用 356/504
+输出: build\tailscale-ipn.zh.exe (29622776 字节)  改变字节数=4881  扩容区已用 356/504
