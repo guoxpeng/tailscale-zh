@@ -58,6 +58,12 @@
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="tailscale" android:host="navigate" />
+            </intent-filter>
         </activity>
         <activity
             android:name="ShareActivity"
@@ -102,6 +108,10 @@
                 <action android:name="com.tailscale.ipn.USE_EXIT_NODE" />
             </intent-filter>
         </receiver>
+
+        <receiver
+            android:name=".InlineShareActionReceiver"
+            android:exported="false" />
 
         <receiver
             android:name=".MDMSettingsChangedReceiver"
