@@ -1,6 +1,16 @@
-# Tailscale 安卓汉化版
+# Tailscale 汉化版（Android + Windows）
 
-基于官方 Tailscale Android 客户端的修改版，增加代理模式、内置浏览器和完整中文汉化。
+基于官方 Tailscale 客户端的修改版：Android 端增加代理模式、内置浏览器和完整中文汉化；Windows 端为托盘/主界面汉化 + 一体化安装包。
+
+## 仓库结构（`main` 分支同时包含两端）
+
+| 端 | 位置 | 说明 |
+| --- | --- | --- |
+| 📱 Android | 仓库根目录（`android/`、`libtailscale/` 等） | 本 README 下文 |
+| 🖥️ Windows | [`windows/`](windows/) | 安装包脚本、汉化补丁器、预构建成品，详见 [`windows/README.md`](windows/README.md) |
+
+> `main` 是唯一的开发与发版分支。原 `pc` 分支（Windows 端）的内容已于 2026-10-13 并入 `main` 的 `windows/` 目录，
+> `pc` 分支**保留为归档**，不再更新、也不再作为构建来源。
 
 > **当前版本：1.104.1**（真实版本号，Tailscale 控制台显示一致）
 > 界面层（Kotlin/Java）基于官方 tailscale-android `release-branch/1.104`（6d75bd4，"go.mod: update for 1.104.1"），
@@ -60,7 +70,7 @@ git push origin v1.104.1-fix4
 GitHub Actions（[`.github/workflows/release.yml`](.github/workflows/release.yml)）会在同一次运行里：
 
 - 在 `main`（标签所指提交）构建**全架构 APK**（arm64-v8a + armeabi-v7a + x86 + x86_64）→ `Tailscale-zh-<版本号>.apk`；
-- 检出 `pc` 分支构建 Windows 一体化安装包 → `Tailscale-zh-<版本号>-setup.exe`
+- 用同一提交的 `windows/` 目录构建 Windows 一体化安装包 → `Tailscale-zh-<版本号>-setup.exe`
   （文件名带发版版本号；安装包内部登记的官方组件版本仍是 1.104.1，汉化补丁只适配官方 1.104.1）；
 - 两个都构建成功后，一起发到 Release **`v<版本号>`**，并附 `SHA256SUMS.txt`。
 
@@ -68,8 +78,8 @@ GitHub Actions（[`.github/workflows/release.yml`](.github/workflows/release.yml
 
 - 标签与 versionName 不一致时流水线会**直接失败**，不会发出版本号对不上的 Release。
 - 在 Actions 页面手动触发 `release.yml`（workflow_dispatch）只构建、上传产物，**不发布** Release，适合发版前试跑。
-- 旧的 `android-v*`（本分支）和 `pc-v*`（`pc` 分支）标签**已不再发版**，
-  `android-release.yml` / `build-pc-installer.yml` 只保留手动构建，避免重复发版。
+- 旧的 `android-v*` 和 `pc-v*` 标签**已不再发版**，
+  `android-release.yml` 只保留手动构建；`build-pc-installer.yml` 在 `windows/**` 有改动推送或手动触发时只构建、不发版。
 - 签名用的是仓库内 [`.ci/android-debug.keystore`](.ci/) 这把**固定调试密钥**，
   因此各版本签名一致，用户可**直接覆盖安装升级**，不必反复卸载重装。
 
@@ -81,6 +91,8 @@ GitHub Actions（[`.github/workflows/release.yml`](.github/workflows/release.yml
   （此前的 `android-v1.104.1`、`v3-fix`、`v1.104.1-zh` 等单端 Release 已合并/下线，标签保留。）
 
 ## 本地构建
+
+Windows 端见 [`windows/README.md`](windows/README.md)（在 `windows/` 目录下执行）。以下为 Android 端。
 
 需要 Go、JDK 21、Android SDK（API 36）、Android NDK：
 

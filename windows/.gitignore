@@ -1,0 +1,19 @@
+# 构建中间产物
+/build/
+/dist/
+/extract/
+*.msi
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# 发版暂存目录（CI 运行时生成）
+/release/

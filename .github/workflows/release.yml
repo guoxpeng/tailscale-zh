@@ -4,7 +4,7 @@ name: 统一发版（Android APK + Windows 安装包）
 #
 #   打 v<版本号> 标签（例如 v1.104.1-fix4，必须与 android/build.gradle.kts 的 versionName 一致）
 #     → job android：在 main（即标签所指提交）构建全架构 APK
-#     → job windows：检出 pc 分支，拉官方 MSI → 打汉化补丁 → Inno Setup 编译安装包
+#     → job windows：用同一提交的 windows/ 目录，拉官方 MSI → 打汉化补丁 → Inno Setup 编译安装包
 #     → job publish：两个都成功后，把 apk + exe（+ SHA256SUMS.txt）一起发到 Release v<版本号>
 #
 #   手动触发（workflow_dispatch）：只构建、上传 Actions 产物，**不发布** Release。
@@ -14,7 +14,7 @@ name: 统一发版（Android APK + Windows 安装包）
 # 版本号说明：
 #   · 发版版本号 = android/build.gradle.kts 的 versionName（如 1.104.1-fix4），
 #     exe 资产名也带同一个标签：Tailscale-zh-<versionName>-setup.exe。
-#   · 安装包内部登记的官方组件版本**仍是 1.104.1**（pc 分支 installer/tailscale-zh.iss 的
+#   · 安装包内部登记的官方组件版本**仍是 1.104.1**（windows/installer/tailscale-zh.iss 的
 #     MyTsVersion，以及下面的 TS_VERSION）—— 汉化补丁按官方 1.104.1 的精确偏移生成，
 #     这里只改「对外的文件名」，不动安装包内部的版本硬编码。
 
@@ -23,11 +23,6 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      pc_ref:
-        description: 'Windows 端源码所用的 pc 分支/提交（默认 pc）'
-        required: false
-        default: 'pc'
 
 # 默认只读；只有 publish 作业申请写权限。
 permissions:
@@ -38,7 +33,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # ===== Windows 端常量（与 pc 分支 build-pc-installer.yml 保持一致）=====
+  # ===== Windows 端常量（与 build-pc-installer.yml、windows/installer/tailscale-zh.iss 保持一致）=====
   TS_VERSION: "1.104.1"
   TS_MSI_URL: "https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-amd64.msi"
   # 官方 MSI 整包的 SHA256（与 pkgs.tailscale.com 发布的 .sha256 一致）。
@@ -167,7 +162,8 @@ jobs:
           retention-days: 30
 
   # ------------------------------------------------------------------
-  # Windows：检出 pc 分支，与 build-pc-installer.yml 相同的构建步骤
+  # Windows：用同一提交的 windows/ 目录构建（与 build-pc-installer.yml 相同的步骤）。
+  # 自 2026-10-13 起 Windows 源码并入 main 的 windows/，不再检出 pc 分支（pc 仅作归档）。
   # ------------------------------------------------------------------
   windows:
     name: 构建 Windows 安装包
@@ -175,18 +171,18 @@ jobs:
     runs-on: windows-latest
     env:
       VERSION: ${{ needs.version.outputs.version }}
+    defaults:
+      run:
+        working-directory: windows
     steps:
-      - name: 检出 pc 分支
+      - name: 拉取代码
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.pc_ref || 'pc' }}
 
-      - name: 记录 pc 分支提交
+      - name: 记录源码提交
         shell: pwsh
         run: |
           $sha = git rev-parse HEAD
-          Write-Host "Windows 端源码: pc @ $sha"
-          "PC_SHA=$sha" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Windows 端源码: windows/ @ $sha"
 
       - name: Setup Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -285,7 +281,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-exe
-          path: release/*.exe
+          path: windows/release/*.exe
           if-no-files-found: error
           retention-days: 30
 

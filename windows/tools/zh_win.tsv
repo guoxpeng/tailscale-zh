@@ -1,0 +1,170 @@
+# Tailscale Windows 界面汉化对照表 v4
+# 英文用二进制中的「实际字符串常量」（含 & 助记符 / 省略号 / 末尾句点）
+Connected	已连接
+Connected. Click for options.	已连接，点击查看
+Disconnected. Click to connect.	未连接，点击连接
+Starting...	启动中
+# Stopped 已移除：该字面量与 ipn.State.String() 的状态名表共用同一份字节，
+# 托盘把服务端发来的英文 BackendState 反查成 ipn.State 时会匹配不到 "Stopped"，
+# 断开状态被当成 NoState。宁可这一处显示英文。
+Logged out	已注销
+This device: %s (%s)	本机: %s (%s)
+Network devices	网络设备
+Exit nodes	出口
+Preferences	设置
+&About…	&关于
+Exit	退出
+My devices	设备
+None	无
+Recommended: 	推荐: 
+Tailnet exit nodes	Tailnet 出口
+Allow local network access	允许本地网络访问
+Run exit node...	运行出口节点
+&Add another account...	&添加其他账号...
+Admin &console...	管理&控制台
+Log &out	注销
+Allow &incoming connections	允许&传入连接
+Use Tailscale &DNS settings	使用 Tailscale &DNS设置
+Use Tailscale &subnets	使用Tailscale&子网
+Automatically install &updates	自动安装&更新
+Run unattended	无人值守
+Reset to defaults	恢复默认值
+Setting options to defaults	选项恢复为默认值
+Update Tailscale?	更新 Tailscale?
+Restart Connection	重新连接
+&Reauthenticate...	&重新认证...
+About Tailscale	关于Tailscale
+Tailscale: Starting...	Tailscale: 启动中
+Confirm unattended mode	确认无人值守
+You're all set	全部就绪
+unknown device	未知设备
+Run exit node?	运行出口节点?
+Best Available	最佳可用
+Remote Desktop	远程桌面
+Tagged devices	标签设备
+&Log in...	&登录...
+Tailscale Start/Stop	Tailscale 启停
+My Address	地址
+IP address	IP 地址
+Managed by	管理方
+Expiration	有效期
+Web client	网页端
+# ---- 第二批：菜单项 / 托盘提示 / 状态与通知（v4） ----
+Bug report...	问题反馈...
+Open with...	打开方式...
+Update Tailscale	更新 Tailscale
+Send with Tailscale	Tailscale 发送
+Recently Used	最近使用
+&Renew session...	&续期会话...
+&Update available...	&有更新可用...
+Use &Notepad for URLs	用&记事本打开链接
+Start &Onboarding Test...	开始&入门测试...
+All Services	所有服务
+Location-based exit nodes	基于位置的出口节点
+No exit node available	无可用出口节点
+No files to send	无文件可发送
+Ready to send 1 file	准备发送 1 个文件
+Ready to send %d files	准备发送 %d 个文件
+Connecting...	连接中...
+Connection lost	连接已断开
+Connection State	连接状态
+You are logged out.	您已注销。
+You're up to date.	已是最新版本。
+Unknown profile	未知配置
+Unable to set up tray	无法初始化托盘
+ Click to reauth.	 点击重新认证。
+Tailscale: %s.	Tailscale: %s。
+Tailscale: Please log in.	Tailscale: 请登录。
+Tailscale: Disconnected. Click to connect.	Tailscale: 未连接，点击连接
+Tailscale: in use by other user	Tailscale: 其他用户正在使用
+Tailscale: A tailnet administrator has not signed this device.	Tailscale: 网络管理员尚未签署此设备。
+Tailscale: Server has not approved this device.	Tailscale: 服务器尚未批准此设备。
+Tailscale Error	Tailscale 错误
+Tailscale Update Available	Tailscale 有可用更新
+Tailscale Authentication Needed	Tailscale 需要认证
+Click the Tailscale icon to log in.	点击 Tailscale 图标登录。
+Click this notification to refresh your login session.	点击此通知以刷新登录会话。
+Your network login will expire soon	您的网络登录即将过期
+Your organization settings require you to use an exit node.	组织设置要求您使用出口节点。
+Some features might have been customized or hidden by your system administrator.	部分功能可能已被系统管理员自定义或隐藏。
+You have disabled logging. Tailscale will not be able to provide support.	您已禁用日志，Tailscale 将无法提供支持。
+Always-On is enabled and requires a reason to disconnect	已启用常开模式，断开需要理由
+%s requires you to enter a reason for disconnecting. This answer will be logged.	%s 要求您填写断开连接的理由，该答复将被记录。
+Your exit node is offline. Disable your exit node or contact your network admin for help.	出口节点已离线。请禁用出口节点或联系网络管理员。
+Your network admin needs to approve this computer to connect to the network.	网络管理员需要批准此计算机加入网络。
+Your network admin needs to sign this computer to connect to the network.	网络管理员需要签署此计算机加入网络。
+Your administrator approved this computer, and it is now connecting to the network.	管理员已批准此计算机，正在连接到网络。
+Your administrator signed this computer, and it is now connecting to the network.	管理员已签署此计算机，正在连接到网络。
+Tailscale hasn't received a network map from the coordination server in %s.	Tailscale 已 %s 未收到协调服务器的网络映射。
+The MagicSock function %s is not running. You might experience connectivity issues.	MagicSock 功能 %s 未运行，可能遇到连接问题。
+A security update from version %s to %s is available.	有安全更新可用：%s → %s。
+An update from version %s to %s is available.	有可用更新：%s → %s。
+Support resources from %s are available on-line.	%s 的支持资源可在线获取。
+You can now access the S3 bucket. Try running:	现在可访问 S3 存储桶，可运行：
+%s is managing Tailscale on this PC.	%s 正在管理本机 Tailscale。
+Latest %s version: %s	最新 %s 版本：%s
+You canceled the file transfer.	您取消了文件传输。
+No update information available.	无可用更新信息。
+Removing WinTun driver...	移除 WinTun 驱动...
+the tray icon is hidden by the system settings.	托盘图标已被系统设置隐藏。
+Admin Approval Needed	需要管理员批准
+Admin Signing Needed	需要管理员签署
+# ---- 第三批：对话框正文 / 托盘与节点提示（v5） ----
+# 注意：本段英文列含 \r \n \x20 转义（多行长文案与行尾空格），由 patch_zh.py 还原
+Are you sure you want to enable Unattended Mode?\r\n\r\nIn Unattended Mode, Tailscale keeps running (as your identity) when you log out of Windows and keeps running even if the machine reboots or a different user logs in. Use the Tailscale CLI to use ACL Tags and run as a non-user account.	确定要启用无人值守模式？\r\n\r\n在无人值守模式下，您注销 Windows 后 Tailscale 仍以您的身份继续运行，重启或换其他用户登录也不会停止。如需使用 ACL 标签并以非用户账户运行，请使用 Tailscale 命令行。
+Are you sure you want to run an exit node?\r\n\r\nRunning an exit node means other devices in your tailnet can send all their traffic through this computer's IP address.\r\n\r\nNote: exit nodes running on Windows are not yet optimized; see Help for details.	确定要运行出口节点？\r\n\r\n运行出口节点意味着网络中的其他设备可将全部流量通过本机 IP 地址发送。\r\n\r\n注意：Windows 上的出口节点尚未优化，详见帮助。
+Connected -\x20	已连接 -\x20
+Managed by %s	管理方 %s
+Recommended: (Awaiting)	推荐: (等待中)
+Always On mode	常开模式
+You are logged out. The last login error was: %v	您已注销。上次登录错误：%v
+An update from version %s to %s is available. Run `tailscale update` or `tailscale set --auto-update` to update now.	有可用更新：%s → %s。请运行 `tailscale update` 或 `tailscale set --auto-update` 立即更新。
+A security update from version %s to %s is available. Run `tailscale update` or `tailscale set --auto-update` to update now.	有安全更新：%s → %s。请运行 `tailscale update` 或 `tailscale set --auto-update` 立即更新。
+# ---- 第四批：网络异常与安全提示（v5） ----
+Tailscale could not connect to the relay server with ID '%s'. Your Internet connection might be down, or the server might be temporarily unavailable.	Tailscale 无法连接 ID 为 '%s' 的中继服务器。可能是网络中断，或服务器暂时不可用。
+Tailscale could not connect to the '%s' relay server. Your Internet connection might be down, or the server might be temporarily unavailable.	Tailscale 无法连接中继服务器 '%s'。可能是网络中断，或服务器暂时不可用。
+You have enabled a non-default log target. Doing without being told to by Tailscale staff or your network administrator will make getting support difficult.	您已启用非默认的日志目标。若非 Tailscale 官方或网络管理员要求，请不要这样做，否则会给技术支持带来困难。
+# 注：「A request to sign the following device ...」那条**故意未收录**：
+#     它实际是一条更长的 Go 模板字面量（后面紧接 " {{.OSName}}<a href=...>"），
+#     按句号截断替换会破坏模板渲染；补丁器也已按「无长度立即数」把它拒掉。
+# ---- 第五批：菜单助记符项 + 服务状态文案 + 托盘菜单（v6） ----
+# 背景：Windows 托盘菜单的显示文本走 rdi/rsi 参数位（lea rdi,[str]; mov esi,len），
+#       而「Exit」只是传给该函数的内部 ID（改它不影响显示），真正的显示文本是
+#       带 Windows 助记符的 "E&xit"。同理菜单实际用的是 "&Settings"（不是 Preferences）。
+# 服务状态文案来自一个 map[string]string，其值经 `mov qword ptr [rax+8], <len>`
+# 写入（内存写，不是寄存器立即数），保存这类长度的同时改写字符串数据即可。
+E&xit	退出(&X)
+&Settings	&设置
+&Open Tailscale	&打开 Tailscale
+Open	打开
+The Tailscale service not installed on this machine	本机未安装 Tailscale 服务
+The Tailscale service is stopped	Tailscale 服务已停止
+Failed connecting to the Tailscale service to query its state	无法连接 Tailscale 服务，无法获取其状态
+Failed connecting to the Tailscale service	无法连接 Tailscale 服务
+
+# ---- 第七批：全新安装 / 未登录时的引导页（onboarding）与登录页 ----
+# 2026-10-11 用户实测反馈：卸载后重装，界面停在 "Join your network" 引导页，
+# 这一整块此前没有被收录（对照表只覆盖了托盘菜单 + 状态提示 + 会话）——
+# 现象就是"托盘菜单是中文，但一打开主界面全是英文"。
+# 这批全部控制在原文字节数以内，走保长替换，不占用 .rsrc 尾部扩容区。
+#
+# 注意：引导页文案旁边紧挨着一批**内部标识符**，绝对不能翻译 ——
+#   JOIN_NETWORK.SIGN_UP / JOIN_NETWORK.SIGN_IN / GET_STARTED
+#   CONNECTED_NON_ADMIN / CONNECTED_ADMIN / OPEN_ADMIN_CONSOLE
+#   SystemUsesLightTheme / toggleExitNode / close of synctest channel ...
+# 它们在 .rdata 里和显示文本首尾相连（Go 字符串池不带 \0 终止符），
+# 翻译它们会被当成逻辑键使用而崩溃。
+Join your network	加入网络
+Connect this device to your Tailscale network	将此设备连接至你的 Tailscale 网络
+Sign in to your network	登录你的网络
+Welcome to Tailscale	欢迎使用
+Get Started	开始
+Waiting for approval	等待批准
+Open admin console	管理控制台
+Open local settings	打开本机设置
+Device rejected	设备被拒绝
+A tailnet administrator needs to approve this device from the admin console.	网络管理员需要在管理控制台中批准此设备。
+This device was rejected and cannot be added to the tailnet. Contact your tailnet administrator.	此设备已被拒绝，无法加入网络。请联系你的网络管理员。
+Now that you're connected, you can manage your settings from the taskbar and find other tailnet devices.	现在你已连接，可以从任务栏管理设置，并找到其他网络设备。
+Tailscale makes it easy to securely connect\nall your team's devices together in minutes.	Tailscale 让你在几分钟内安全地连接团队所有设备。
+Don't have an account? <a href="https://login.tailscale.com/start">Sign up</a>	还没有账号？<a href="https://login.tailscale.com/start">注册</a>
