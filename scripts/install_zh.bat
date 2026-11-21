@@ -21,7 +21,7 @@ rem      "is not a valid application for this OS platform"（Win32 193）。
 rem    - 改名重试用尽仍失败时自动用备份还原，绝不留下坏掉的主程序
 rem    - 用 explorer 转交启动托盘，避免以管理员身份运行 Tailscale GUI
 rem    - 【完整性】复制进安装目录后核对汉化版 SHA256；备份 / 还原前核对官方原版 SHA256，
-rem      还原前确认当前主程序仍是 1.104.1 体系（官方已自动更新时不拿旧备份降级）
+rem      还原前确认当前主程序仍是 1.104.7 体系（官方已自动更新时不拿旧备份降级）
 rem    - 系统命令一律写绝对路径（脚本是提权运行的，不让 PATH / 当前目录里的同名程序顶替）
 rem ============================================================
 
@@ -40,9 +40,9 @@ set "OLD=%DEST_DIR%\tailscale-ipn.exe.old"
 set "SYS=%SystemRoot%\System32"
 rem 汉化版 tailscale-ipn.zh.exe 的 SHA256（= prebuilt/SHA256SUMS.txt 里那一条；
 rem tools/prebuilt_check.py 会在 CI 里核对两者一致，换汉化版时记得同步这里）
-set "ZH_SHA=a5cf6c0c319c579a08137947b3e3f6a80e74ec1e1ba00ae519ac3ff21846b125"
-rem 官方 1.104.1 原版 tailscale-ipn.exe 的 SHA256
-set "ORIG_SHA=0c3c56a6626c9f71a32fb307dbda0c810c94a89d66fed158258da6f043004f9c"
+set "ZH_SHA=f7be11a9b7d8fcb2e911cc5676cf5905a59506dc6a35ddb110457e0c675e4c86"
+rem 官方 1.104.7 原版 tailscale-ipn.exe 的 SHA256
+set "ORIG_SHA=a9d86321053f50175127ae7af3fb55e87f39d8ef69340f3f59d847b533e68b78"
 
 "%SYS%\net.exe" session >nul 2>&1
 if %errorlevel% neq 0 (
@@ -54,7 +54,7 @@ if /i "%~1"=="restore" goto RESTORE
 
 if not exist "%DST%" (
   echo [!] 未找到已安装的 Tailscale: %DST%
-  echo     本脚本只替换界面程序，请先装好官方 Tailscale 1.104.1（x64）。
+  echo     本脚本只替换界面程序，请先装好官方 Tailscale 1.104.7（x64）。
   pause & exit /b 1
 )
 if not exist "%SRC%" (
@@ -64,13 +64,13 @@ if not exist "%SRC%" (
 )
 
 rem ===== 版本预检：与安装包同样的道理 =====
-rem 汉化补丁按官方 1.104.1 的**精确文件偏移**生成，对别的版本强行替换
+rem 汉化补丁按官方 1.104.7 的**精确文件偏移**生成，对别的版本强行替换
 rem 必然失败、或者让 Tailscale 直接起不来。安装包里有这道闸门，脚本也补上。
 for %%A in ("%DST%") do set "DSIZE=%%~zA"
-if not "%DSIZE%"=="29622776" (
+if not "%DSIZE%"=="29654008" (
   echo [!] 本机的 tailscale-ipn.exe 是 %DSIZE% 字节，不是本汉化包支持的
-  echo     官方 1.104.1（29622776 字节）。强行替换会失败或让程序无法启动。
-  echo     请先卸载现有 Tailscale，装好官方 1.104.1 后再运行本脚本。
+  echo     官方 1.104.7（29654008 字节）。强行替换会失败或让程序无法启动。
+  echo     请先卸载现有 Tailscale，装好官方 1.104.7 后再运行本脚本。
   pause & exit /b 1
 )
 
@@ -79,8 +79,8 @@ if exist "%BAK%" goto BAK_EXISTS
 rem 只有当前主程序确实是官方原版时才备份，免得把汉化版或别的文件当成「原版」存下来
 call :SHA256 "%DST%" DSHA
 if /i not "%DSHA%"=="%ORIG_SHA%" (
-  echo [!] 当前的 tailscale-ipn.exe 不是官方 1.104.1 原版（SHA256 不符），又没有 .orig 备份，
-  echo     无法安全备份，已中止（未改动任何文件）。请重装官方 Tailscale 1.104.1 后再运行。
+  echo [!] 当前的 tailscale-ipn.exe 不是官方 1.104.7 原版（SHA256 不符），又没有 .orig 备份，
+  echo     无法安全备份，已中止（未改动任何文件）。请重装官方 Tailscale 1.104.7 后再运行。
   pause & exit /b 1
 )
 copy /Y "%DST%" "%BAK%" >nul
@@ -93,7 +93,7 @@ goto BAK_OK
 :BAK_EXISTS
 call :SHA256 "%BAK%" BSHA
 if /i not "%BSHA%"=="%ORIG_SHA%" (
-  echo [!] 已有的 tailscale-ipn.exe.orig 不是官方 1.104.1 原版（SHA256 不符），
+  echo [!] 已有的 tailscale-ipn.exe.orig 不是官方 1.104.7 原版（SHA256 不符），
   echo     继续安装将来会无法还原，已中止（未改动任何文件）。
   pause & exit /b 1
 )
@@ -200,22 +200,22 @@ if not exist "%RESTORE_SRC%" (
   pause & exit /b 1
 )
 
-rem 备份必须是官方 1.104.1 原版
+rem 备份必须是官方 1.104.7 原版
 call :SHA256 "%RESTORE_SRC%" RSHA
 if /i not "%RSHA%"=="%ORIG_SHA%" (
-  echo [!] 备份 %RESTORE_SRC% 不是官方 1.104.1 原版（SHA256 不符），不还原。
+  echo [!] 备份 %RESTORE_SRC% 不是官方 1.104.7 原版（SHA256 不符），不还原。
   echo     请到 Tailscale 官网重新安装官方版。
   pause & exit /b 1
 )
-rem 当前主程序若已不是 1.104.1 体系（例如官方「自动安装更新」已经把它换成了新版），
-rem 再拿 1.104.1 的旧备份覆盖就是降级，会与已升级的 tailscaled 服务版本不一致
+rem 当前主程序若已不是 1.104.7 体系（例如官方「自动安装更新」已经把它换成了新版），
+rem 再拿 1.104.7 的旧备份覆盖就是降级，会与已升级的 tailscaled 服务版本不一致
 if exist "%DST%" (
   for %%A in ("%DST%") do set "RSIZE=%%~zA"
 ) else (
-  set "RSIZE=29622776"
+  set "RSIZE=29654008"
 )
-if not "%RSIZE%"=="29622776" (
-  echo [!] 当前 tailscale-ipn.exe 是 %RSIZE% 字节，已不是 1.104.1（多半已被官方更新覆盖，本身就是官方版），
+if not "%RSIZE%"=="29654008" (
+  echo [!] 当前 tailscale-ipn.exe 是 %RSIZE% 字节，已不是 1.104.7（多半已被官方更新覆盖，本身就是官方版），
   echo     无需还原；为避免降级，不做任何改动。旧备份可以手动删除。
   pause & exit /b 1
 )

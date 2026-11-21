@@ -1,8 +1,8 @@
 # Tailscale Windows 汉化
 
-> ✅ **现已一体化：安装包自带官方 Tailscale 1.104.1 组件，无需预装。**
+> ✅ **现已一体化：安装包自带官方 Tailscale 1.104.7 组件，无需预装。**
 
-**下载**：打开 [**Releases**](https://github.com/guoxpeng/tailscale-zh/releases/tag/v1.104.1) ——
+**下载**：打开 [**Releases**](https://github.com/guoxpeng/tailscale-zh/releases/tag/v1.104.7) ——
 **每个 Release 里同时挂着 Windows 与 Android 两个安装包**：
 
 | 端 | 文件 | 说明 |
@@ -15,16 +15,16 @@
 
 > - **没装过 Tailscale 的电脑**：直接装本包即可 —— 会先**静默**装好官方组件
 >   （`msiexec /qn`，全程无界面、无英文向导、无弹窗），再把界面换成中文版。
-> - **已装 Tailscale 1.104.1 的电脑**：自动跳过官方安装，直接替换界面程序。
+> - **已装 Tailscale 1.104.7 的电脑**：自动跳过官方安装，直接替换界面程序。
 > - **装的是其它版本**：安装会在**动任何文件之前直接中止**，提示你先在
->   「设置 → 应用」里卸载它。汉化补丁按 1.104.1 的精确文件偏移生成，对其它版本
+>   「设置 → 应用」里卸载它。汉化补丁按 1.104.7 的精确文件偏移生成，对其它版本
 >   强行替换会让界面程序与服务端版本错配，轻则功能异常、重则启动即崩，
 >   所以这里**不给「继续安装」的选项**。
 
 
 把 Tailscale **Windows 桌面端**（`tailscale-ipn.exe`，托盘图标与主面板）的界面文字替换成简体中文。
 
-- 基版本：**Tailscale 1.104.1 (x64)**
+- 基版本：**Tailscale 1.104.7 (x64)**
 - 方式：对官方二进制做**偏移补丁**（保长原地替换为主），不重新编译
 - 产出：**向导式安装包**（Inno Setup，约 38 MB，内嵌官方 MSI），也可单独取汉化后的 `tailscale-ipn.exe`
 
@@ -37,7 +37,7 @@
 
 ### 方式 A：安装包（推荐）
 
-下载本仓库 Release 里的 `Tailscale-zh-1.104.1-setup.exe`，**双击运行**即可
+下载本仓库 Release 里的 `Tailscale-zh-1.104.7-setup.exe`，**双击运行**即可
 （安装程序会自己请求管理员权限，Inno 的 `PrivilegesRequired=admin`）。
 
 > ⚠️ **不要「右键 → 以管理员身份运行」。** 那种启动方式下 Inno 拿不到「登录用户」的
@@ -59,8 +59,8 @@
    列表里**只留「Tailscale 中文汉化」一条**，不用再纠结该卸哪个。
    被隐藏的只是列表显示 —— 条目本身还在注册表里，官方组件的卸载 / 修复能力一点没少。
 
-> 如果本机已装的 Tailscale **不是 1.104.1**，安装程序会**直接中止**并提示先在
-> 「设置 → 应用」里卸载它。汉化补丁是按 1.104.1 的精确文件偏移生成的，
+> 如果本机已装的 Tailscale **不是 1.104.7**，安装程序会**直接中止**并提示先在
+> 「设置 → 应用」里卸载它。汉化补丁是按 1.104.7 的精确文件偏移生成的，
 > 对其它版本强行替换会让界面程序与服务端版本错配，轻则功能异常、重则启动即崩，
 > 所以这里不给「继续安装」的选项。
 
@@ -73,7 +73,7 @@
 
 ### 方式 B：手动替换
 
-> 前提：目标机已装**官方 Tailscale 1.104.1**。
+> 前提：目标机已装**官方 Tailscale 1.104.7**。
 
 ```
 1. 右键托盘图标 → 退出 Tailscale
@@ -159,7 +159,7 @@ Go 编译的二进制把字符串常量**连续**堆在 `.rdata` 里，代码用
 python -m pip install capstone
 
 # 1) 取官方原始程序（MSI 内文件名为 ClientGUIx64）
-curl.exe -L -o tailscale-setup.msi https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-amd64.msi
+curl.exe -L -o tailscale-setup.msi https://pkgs.tailscale.com/stable/tailscale-setup-1.104.7-amd64.msi
 "C:\Program Files\7-Zip\7z.exe" x tailscale-setup.msi -oextract -y
 
 # 2) 打补丁（内含 SHA256 校验，源文件不符会直接报错）
@@ -176,7 +176,7 @@ python tools/verify.py extract/ClientGUIx64 build/tailscale-ipn.zh.exe tools/zh_
 ```bash
 # 需先装 Inno Setup 6（CI 里固定用 6.7.3）
 ISCC.exe installer\tailscale-zh.iss
-# 产物: dist\Tailscale-zh-1.104.1-setup.exe
+# 产物: dist\Tailscale-zh-1.104.7-setup.exe
 ```
 
 安装包是否内嵌官方 MSI（即是否具备「一体化安装」能力），由编译期探测仓库根目录有没有
@@ -204,17 +204,17 @@ inno\ISCC.exe installer\tailscale-zh.iss
 
 **发版：打一个 `v<版本号>` 标签即可同时出 APK 和 exe。** 发版统一由 `main` 分支的
 `.github/workflows/release.yml` 负责：在 `main` 上打 `v<版本号>` 标签（必须等于
-`main` 分支 `android/build.gradle.kts` 的 versionName，例如 `v1.104.1-fix4`），流水线会
+`main` 分支 `android/build.gradle.kts` 的 versionName，例如 `v1.104.7-fix4`），流水线会
 构建 APK、检出本 `pc` 分支构建 exe，两个都成功后一起发到 Release `v<版本号>`：
 
 ```bash
 # 在 main 分支上（先改好 versionName / versionCode 并推送）
-git tag v1.104.1-fix4
-git push origin v1.104.1-fix4
+git tag v1.104.7-fix4
+git push origin v1.104.7-fix4
 ```
 
 - exe 资产名带发版版本号：`Tailscale-zh-<版本号>-setup.exe`；安装包内部登记的官方组件版本
-  仍是 **1.104.1**（`installer/tailscale-zh.iss` 的 `MyTsVersion`），汉化补丁只适配官方 1.104.1。
+  仍是 **1.104.7**（`installer/tailscale-zh.iss` 的 `MyTsVersion`），汉化补丁只适配官方 1.104.7。
 - Release 同时附 `SHA256SUMS.txt`，说明取自 `main` 分支的 `.github/release-notes.md`。
 - 旧的 `pc-v*` 标签**已不再发版**；改本分支构建步骤时，请同步 `release.yml` 的 windows 作业。
 
@@ -254,8 +254,8 @@ CI 会在**源文件哈希不符**时直接失败（不会产出错误的包）�
 - **自动更新会覆盖汉化**：请到「设置 → 自动安装&更新」取消勾选（`Automatically install &updates`）。
   官方文档写明自动更新「即使客户端未连接也会进行」，新建的 tailnet 默认对新设备开启
   （[Update Tailscale](https://tailscale.com/docs/features/client/update)）。被覆盖后界面变回英文，但程序本身是完整的官方新版、
-  可正常使用；此时**卸载汉化包 / `install_zh.bat restore` 不会再用旧的 1.104.1 备份去降级**（两者都会先核对
-  当前主程序是否仍是 1.104.1，以及 `.orig` 备份的 SHA256 是否为官方原版）。
+  可正常使用；此时**卸载汉化包 / `install_zh.bat restore` 不会再用旧的 1.104.7 备份去降级**（两者都会先核对
+  当前主程序是否仍是 1.104.7，以及 `.orig` 备份的 SHA256 是否为官方原版）。
 - **完整性校验**：CI 钉死官方 MSI 整包 SHA256 并校验其 Tailscale 数字签名、钉死 Inno Setup 安装包哈希、
   所有 Actions 按提交 SHA 固定；安装包在以管理员身份执行内嵌 MSI 前再核对一次哈希；一键脚本把汉化版
   复制进安装目录后核对 SHA256（值写在脚本里，CI 会核对它与构建产物一致）。
@@ -291,7 +291,17 @@ Windows 版 Tailscale 默认**不是**无人值守模式。此时 `tailscaled` �
 
 ## 七、更新日志
 
-### `v1.104.1`（当前）
+### `v1.104.7`（当前）
+
+> 基版本升至 **Tailscale 1.104.7**（官方 2026-11-12 发布）。这是**版本适配**，不是汉化内容改动：
+> v8 补丁器 + 139 条对照表在新版上全部命中（保长 120 + 扩容 19，未处理 0 条），
+> 逐字节校验通过；REJECT / WARN 与 1.104.1 逐条一致。
+>
+> 官方 MSI 整包、原始 exe、汉化产物的 SHA256 与内嵌 MSI、安装器预检、CI 常量全部同步。
+> **已装 1.104.1 的机器请先卸载旧版**，新安装器会按版本一致性检查拒绝混装。
+> Android 侧版本由 `main` 分支的 `versionName` 独立维护。
+
+### `v1.104.1`
 
 > 发版标签由 `pc-v1.104.1-fix` 改为统一的 **`v1.104.1`** —— 该 Release 同时挂着
 > Windows 安装包与 Android APK。旧标签仍在，但不再对应 Release。
