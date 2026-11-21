@@ -12,9 +12,9 @@
 > `main` 是唯一的开发与发版分支。原 `pc` 分支（Windows 端）的内容已于 2026-10-13 并入 `main` 的 `windows/` 目录，
 > `pc` 分支**保留为归档**，不再更新、也不再作为构建来源。
 
-> **当前版本：1.104.1**（真实版本号，Tailscale 控制台显示一致）
-> 界面层（Kotlin/Java）基于官方 tailscale-android `release-branch/1.104`（6d75bd4，"go.mod: update for 1.104.1"），
-> Go 核心为官方 `tailscale.com v1.104.1`，两者版本一致。
+> **当前版本：1.104.7**（真实版本号，Tailscale 控制台显示一致）
+> 界面层（Kotlin/Java）基于官方 tailscale-android `release-branch/1.104`（226f029a，"go.mod: update for 1.104.7"），
+> Go 核心为官方 `tailscale.com v1.104.7`，两者版本一致。
 
 ## 功能特性
 
@@ -46,8 +46,8 @@
 
 ## 下载安装
 
-从 [Releases](https://github.com/guoxpeng/tailscale-zh/releases/tag/v1.104.1) 下载最新 APK
-（文件名形如 `Tailscale-zh-1.104.1.apk`）。
+从 [Releases](https://github.com/guoxpeng/tailscale-zh/releases/tag/v1.104.7) 下载最新 APK
+（文件名形如 `Tailscale-zh-1.104.7.apk`）。
 
 > ℹ️ **每个 Release 里同时挂着 Windows 与 Android 两个安装包** ——
 > `Tailscale-zh-*-setup.exe`（Windows 一体化安装包）与 `Tailscale-zh-*.apk`（本端），
@@ -60,18 +60,18 @@
 **打一个 `v<版本号>` 标签即可同时出 APK 和 exe。**
 
 1. 先把 `android/build.gradle.kts` 里的 `versionName` / `versionCode` 改好（versionCode 必须递增）并推到 `main`；
-2. 打标签并推送（标签必须是 `v` + versionName，例如 versionName = `1.104.1-fix4`）：
+2. 打标签并推送（标签必须是 `v` + versionName，例如 versionName = `1.104.7`）：
 
 ```bash
-git tag v1.104.1-fix4
-git push origin v1.104.1-fix4
+git tag v1.104.7
+git push origin v1.104.7
 ```
 
 GitHub Actions（[`.github/workflows/release.yml`](.github/workflows/release.yml)）会在同一次运行里：
 
 - 在 `main`（标签所指提交）构建**全架构 APK**（arm64-v8a + armeabi-v7a + x86 + x86_64）→ `Tailscale-zh-<版本号>.apk`；
 - 用同一提交的 `windows/` 目录构建 Windows 一体化安装包 → `Tailscale-zh-<版本号>-setup.exe`
-  （文件名带发版版本号；安装包内部登记的官方组件版本仍是 1.104.1，汉化补丁只适配官方 1.104.1）；
+  （文件名带发版版本号；安装包内部登记的官方组件版本为 1.104.7，汉化补丁适配官方 1.104.7）；
 - 两个都构建成功后，一起发到 Release **`v<版本号>`**，并附 `SHA256SUMS.txt`。
 
 注意：
@@ -87,7 +87,7 @@ GitHub Actions（[`.github/workflows/release.yml`](.github/workflows/release.yml
 
 ## 发布历史
 
-- `v1.104.1`：统一发版标签 —— 同一个 Release 里同时挂着 Windows 安装包与 Android APK。
+- `v1.104.7`：统一发版标签 —— 同一个 Release 里同时挂着 Windows 安装包与 Android APK。
   （此前的 `android-v1.104.1`、`v3-fix`、`v1.104.1-zh` 等单端 Release 已合并/下线，标签保留。）
 
 ## 本地构建

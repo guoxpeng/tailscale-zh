@@ -33,17 +33,17 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 # ---- 目标版本常量（换 Tailscale 版本时必须同步更新） ----
-TS_VERSION = "1.104.1"
+TS_VERSION = "1.104.7"
 
-# 官方 tailscale-setup-1.104.1-amd64.msi 中 ClientGUIx64（= tailscale-ipn.exe）
-ORIG_SHA256 = "0c3c56a6626c9f71a32fb307dbda0c810c94a89d66fed158258da6f043004f9c"
-ORIG_SIZE = 29622776
+# 官方 tailscale-setup-1.104.7-amd64.msi 中 ClientGUIx64（= tailscale-ipn.exe）
+ORIG_SHA256 = "a9d86321053f50175127ae7af3fb55e87f39d8ef69340f3f59d847b533e68b78"
+ORIG_SIZE = 29654008
 
 # 用 tools/zh_win.tsv 打补丁后的确定性产物
 # （v8 对照表：139 条生效 = 保长 120 + 扩容 19；改动汉化表后此值必须同步更新）
 # v8：去掉与 ipn.State 状态名表共用字节的 "Stopped"；补丁器识别存进内存的字符串长度，
 #     不再把 services.findSSH 里的 "OpenSSH" 当成 "Open" 改坏。
-OUT_SHA256 = "a5cf6c0c319c579a08137947b3e3f6a80e74ec1e1ba00ae519ac3ff21846b125"
+OUT_SHA256 = "f7be11a9b7d8fcb2e911cc5676cf5905a59506dc6a35ddb110457e0c675e4c86"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PATCHER = os.path.join(HERE, "patch_zh.py")

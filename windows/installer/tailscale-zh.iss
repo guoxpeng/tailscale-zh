@@ -30,8 +30,8 @@
 ; =====================================================================
 
 #define MyZhName    "Tailscale 中文汉化"
-#define MyTsVersion "1.104.1"
-; 本汉化包自身的版本**不在这里维护** —— 它就是 Release 标签（pc-v1.104.1-rN）。
+#define MyTsVersion "1.104.7"
+; 本汉化包自身的版本**不在这里维护** —— 它就是 Release 标签（pc-v1.104.7-rN）。
 ; 安装包以 AppVersion = MyTsVersion 登记（对应官方组件版本），
 ; 免得出现「安装包说自己是 1.2.0、Release 说自己是 r9」两套版本号对不上的情况。
 ; 唯一被替换的文件（托盘 / 主界面程序）。全脚本只在这里定义一次。
@@ -40,12 +40,12 @@
 #define MsiName     "tailscale-setup.msi"
 #define MyPublisher "guoxpeng"
 #define MyUrl       "https://github.com/guoxpeng/tailscale-zh"
-; 官方 MSI 整包 SHA256（= pkgs.tailscale.com 公布的 tailscale-setup-1.104.1-amd64.msi.sha256）。
+; 官方 MSI 整包 SHA256（= pkgs.tailscale.com 公布的 tailscale-setup-1.104.7-amd64.msi.sha256）。
 ; 安装器在以管理员身份调用 msiexec 之前再核对一次，与 CI 的下载校验是同一个值。
-#define MsiSha256   "6da8bcdb0d45a214cae0e8a88c2987ad48dec134bf04dffb9c05f1354c02b0b4"
-; 官方 1.104.1 原版 tailscale-ipn.exe（MSI 内 ClientGUIx64）的 SHA256。
+#define MsiSha256   "676b5b32fdd1aeaee90d8e8f38e222635b216fbdfbf877bf01cb1d7cda330ec5"
+; 官方 1.104.7 原版 tailscale-ipn.exe（MSI 内 ClientGUIx64）的 SHA256。
 ; 卸载 / 还原时用它确认 .orig 备份确实是官方原版，而不是别的东西。
-#define OrigSha256  "0c3c56a6626c9f71a32fb307dbda0c810c94a89d66fed158258da6f043004f9c"
+#define OrigSha256  "a9d86321053f50175127ae7af3fb55e87f39d8ef69340f3f59d847b533e68b78"
 
 ; 编译期探测官方 MSI 是否随包提供 —— 决定走「一体化」还是「仅替换」。
 ; 注意：MSI 本身不入库（.gitignore 排除 *.msi），由构建流程临时下载到仓库根目录。
@@ -62,7 +62,7 @@ AppPublisher={#MyPublisher}
 AppPublisherURL={#MyUrl}
 AppSupportURL={#MyUrl}
 AppUpdatesURL={#MyUrl}
-VersionInfoVersion=1.104.1.0
+VersionInfoVersion=1.104.7.0
 VersionInfoProductName={#MyZhName}
 VersionInfoCompany={#MyPublisher}
 VersionInfoDescription={#MyZhName} 安装程序
@@ -197,7 +197,7 @@ const
   MSI_NAME = '{#MsiName}';
   { 快捷方式显示名（[Icons] 段建 lnk 用的就是它）——两处必须一致 }
   ZH_NAME  = '{#MyZhName}';
-  EXPECT_SIZE = 29622776;
+  EXPECT_SIZE = 29654008;
   { 本汉化包自己的注册表落脚点（只用来记「临时隐藏了官方哪条卸载项」） }
   OUR_REG_KEY = 'SOFTWARE\TailscaleZh';
   { 「设置 → 应用」里所有已安装程序的登记处 }
@@ -831,7 +831,7 @@ begin
 
   { ===== 版本一致性预检：必须发生在**任何文件被改动之前** =====
 
-    汉化补丁依赖 1.104.1 的精确文件偏移，对其它版本的 tailscale-ipn.exe 替换
+    汉化补丁依赖 1.104.7 的精确文件偏移，对其它版本的 tailscale-ipn.exe 替换
     必然失败或让程序直接起不来。这个判断要尽可能早做：
 
       · 放在 CurStepChanged(ssPostInstall) 里做（以前就是这样）有两处不好 ——
@@ -844,7 +844,7 @@ begin
     判定条件刻意加了 TsServiceInstalled()：
       - 官方组件已就位 ⇒ 本次装机不会去装官方组件（EnsureOfficial 会直接跳过），
         现存那份界面程序的版本会**原样**留到最后，所以现在就得拦；
-      - 官方组件缺失 ⇒ 我们本来就会用随包 MSI 装成 1.104.1，届时不匹配的那个
+      - 官方组件缺失 ⇒ 我们本来就会用随包 MSI 装成 1.104.7，届时不匹配的那个
         残留文件会被盖掉，现在拦反而是误伤。
 
     注意 CurStepChanged 里那道检查**保留**：它在这里退化成最后一道兜底闸门，
@@ -906,11 +906,11 @@ begin
     DropTempMsi 上方的注释。 }
   DropTempMsi();
 
-  { 版本一致性检查（**兜底**）。汉化补丁依赖 1.104.1 的精确文件偏移，只对这个版本有效。
+  { 版本一致性检查（**兜底**）。汉化补丁依赖 1.104.7 的精确文件偏移，只对这个版本有效。
 
     真正的预检已经前移到 InitializeSetup（那里能在改动任何文件之前干净中止，
     详见那段注释）；这里保留一道，是因为此刻的 tailscale-ipn.exe 才是
-    「即将被替换掉的那一份」—— EnsureOfficial 可能刚刚才把它写成 1.104.1。
+    「即将被替换掉的那一份」—— EnsureOfficial 可能刚刚才把它写成 1.104.7。
 
     以前这里是「弹框让用户选要不要继续」—— 那等于把「必然出问题」包装成一个选项：
     替换后界面程序与服务端版本不匹配，轻则功能异常，重则启动即崩。
@@ -948,7 +948,7 @@ begin
     注意 Base 可能**本来就不存在** —— 服务与 tailscaled.exe 都在、唯独界面程序
     被删掉的残缺安装就是这种状态。此时没有东西可备份，直接往下走交给
     ReplaceExe 就位即可，不能因为「备份失败」把整个安装中止掉。 }
-  { 已有的 .orig 若不是官方 1.104.1 原版（损坏 / 来历不明），而当前文件恰好是官方原版，
+  { 已有的 .orig 若不是官方 1.104.7 原版（损坏 / 来历不明），而当前文件恰好是官方原版，
     就用当前文件重新备份 —— 否则卸载时将无法还原（卸载流程会核对 .orig 的 SHA256）。 }
   if FileExists(Base) and FileExists(Bak) then
     if (LowerCase(GetSHA256OfFile(Bak)) <> '{#OrigSha256}') and
@@ -1096,15 +1096,15 @@ begin
 
   { ===== 还原前的版本核对（以前完全没做） =====
     官方的「自动安装更新」或手动装新版 MSI，会把 tailscale-ipn.exe 直接换成**更新的
-    官方版本**（汉化随之失效），而 .orig 还停留在 1.104.1。此时若照旧把 .orig 还原
-    回去，界面程序就会被**降级**成 1.104.1，与已升级的 tailscaled 服务版本不一致。
+    官方版本**（汉化随之失效），而 .orig 还停留在 1.104.7。此时若照旧把 .orig 还原
+    回去，界面程序就会被**降级**成 1.104.7，与已升级的 tailscaled 服务版本不一致。
     所以：
-      1) .orig 必须真的是官方 1.104.1 原版（SHA256 核对）；
-      2) 当前的 tailscale-ipn.exe 必须仍是 1.104.1 体系（汉化版与原版同为 EXPECT_SIZE 字节）。
+      1) .orig 必须真的是官方 1.104.7 原版（SHA256 核对）；
+      2) 当前的 tailscale-ipn.exe 必须仍是 1.104.7 体系（汉化版与原版同为 EXPECT_SIZE 字节）。
     任一不满足就不动当前文件，只清掉过期 / 来历不明的备份。 }
   if LowerCase(GetSHA256OfFile(Bak)) <> '{#OrigSha256}' then
   begin
-    Log('!! 备份 ' + Bak + ' 不是官方 1.104.1 原版（SHA256 不符），不还原，保留当前程序');
+    Log('!! 备份 ' + Bak + ' 不是官方 1.104.7 原版（SHA256 不符），不还原，保留当前程序');
     SuppressibleMsgBox('备份文件 ' + Bak + ' 不是官方 {#MyTsVersion} 原版，已跳过还原，' + #13#10 +
            '当前的 ' + EXE_NAME + ' 保持不变。如界面仍是中文，请从官网重新安装 Tailscale。',
            mbError, MB_OK, IDOK);

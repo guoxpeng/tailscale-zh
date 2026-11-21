@@ -26,15 +26,15 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  TS_VERSION: "1.104.1"
-  TS_MSI_URL: "https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-amd64.msi"
+  TS_VERSION: "1.104.7"
+  TS_MSI_URL: "https://pkgs.tailscale.com/stable/tailscale-setup-1.104.7-amd64.msi"
   # 官方 MSI 整包 SHA256（= pkgs.tailscale.com 公布的 .sha256）。MSI 会被内嵌进安装包、
   # 在用户机器上以管理员身份执行，必须钉死整包，不能只校验解出来的 exe。
   # 与 windows/installer/tailscale-zh.iss 的 MsiSha256、release.yml 保持一致。
-  TS_MSI_SHA256: "6da8bcdb0d45a214cae0e8a88c2987ad48dec134bf04dffb9c05f1354c02b0b4"
+  TS_MSI_SHA256: "676b5b32fdd1aeaee90d8e8f38e222635b216fbdfbf877bf01cb1d7cda330ec5"
   # 官方 MSI 内 ClientGUIx64（= tailscale-ipn.exe）的 SHA256。
   # 偏移补丁必须打在完全一致的源文件上，不一致直接失败。
-  TS_ORIG_SHA256: "0c3c56a6626c9f71a32fb307dbda0c810c94a89d66fed158258da6f043004f9c"
+  TS_ORIG_SHA256: "a9d86321053f50175127ae7af3fb55e87f39d8ef69340f3f59d847b533e68b78"
   INNO_VERSION: "6.7.3"
   INNO_URL: "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe"
   # innosetup-6.7.3.exe 的 SHA256（= jrsoftware/issrc 该 Release 资产的 digest）

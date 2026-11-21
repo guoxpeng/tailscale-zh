@@ -2,7 +2,7 @@ name: 统一发版（Android APK + Windows 安装包）
 
 # 本仓库唯一的发版入口。一次发版 = 一个标签 = 一个 Release = 两个安装包。
 #
-#   打 v<版本号> 标签（例如 v1.104.1-fix4，必须与 android/build.gradle.kts 的 versionName 一致）
+#   打 v<版本号> 标签（例如 v1.104.7，必须与 android/build.gradle.kts 的 versionName 一致）
 #     → job android：在 main（即标签所指提交）构建全架构 APK
 #     → job windows：用同一提交的 windows/ 目录，拉官方 MSI → 打汉化补丁 → Inno Setup 编译安装包
 #     → job publish：两个都成功后，把 apk + exe（+ SHA256SUMS.txt）一起发到 Release v<版本号>
@@ -12,10 +12,10 @@ name: 统一发版（Android APK + Windows 安装包）
 # 旧的单端触发（android-v* / pc-v* 标签）已停用发版，只保留手动构建，避免重复发版。
 #
 # 版本号说明：
-#   · 发版版本号 = android/build.gradle.kts 的 versionName（如 1.104.1-fix4），
+#   · 发版版本号 = android/build.gradle.kts 的 versionName（如 1.104.7），
 #     exe 资产名也带同一个标签：Tailscale-zh-<versionName>-setup.exe。
-#   · 安装包内部登记的官方组件版本**仍是 1.104.1**（windows/installer/tailscale-zh.iss 的
-#     MyTsVersion，以及下面的 TS_VERSION）—— 汉化补丁按官方 1.104.1 的精确偏移生成，
+#   · 安装包内部登记的官方组件版本**同步为 1.104.7**（windows/installer/tailscale-zh.iss 的
+#     MyTsVersion，以及下面的 TS_VERSION）—— 汉化补丁按官方 1.104.7 的精确偏移生成，
 #     这里只改「对外的文件名」，不动安装包内部的版本硬编码。
 
 on:
@@ -34,14 +34,14 @@ concurrency:
 
 env:
   # ===== Windows 端常量（与 build-pc-installer.yml、windows/installer/tailscale-zh.iss 保持一致）=====
-  TS_VERSION: "1.104.1"
-  TS_MSI_URL: "https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-amd64.msi"
+  TS_VERSION: "1.104.7"
+  TS_MSI_URL: "https://pkgs.tailscale.com/stable/tailscale-setup-1.104.7-amd64.msi"
   # 官方 MSI 整包的 SHA256（与 pkgs.tailscale.com 发布的 .sha256 一致）。
   # MSI 会被**内嵌进安装包、在用户机器上以管理员身份执行**，所以必须钉死整包哈希，
   # 不能只校验从里面解出来的那个 exe。
-  TS_MSI_SHA256: "6da8bcdb0d45a214cae0e8a88c2987ad48dec134bf04dffb9c05f1354c02b0b4"
+  TS_MSI_SHA256: "676b5b32fdd1aeaee90d8e8f38e222635b216fbdfbf877bf01cb1d7cda330ec5"
   # 官方 MSI 内 ClientGUIx64（= tailscale-ipn.exe）的 SHA256。偏移补丁必须打在完全一致的源文件上。
-  TS_ORIG_SHA256: "0c3c56a6626c9f71a32fb307dbda0c810c94a89d66fed158258da6f043004f9c"
+  TS_ORIG_SHA256: "a9d86321053f50175127ae7af3fb55e87f39d8ef69340f3f59d847b533e68b78"
   INNO_VERSION: "6.7.3"
   INNO_URL: "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe"
   # innosetup-6.7.3.exe 的 SHA256（与 jrsoftware/issrc 该 Release 资产的 digest 一致）
@@ -263,7 +263,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "ISCC 编译失败，退出码 $LASTEXITCODE" }
           Get-ChildItem dist | Format-Table Name, Length
 
-      # 安装包内部仍按官方 1.104.1 登记（OutputBaseFilename = Tailscale-zh-1.104.1-setup），
+      # 安装包内部按官方 1.104.7 登记（OutputBaseFilename = Tailscale-zh-1.104.7-setup），
       # 这里只把**对外文件名**换成发版版本号。
       - name: Stage exe with release version label
         shell: pwsh
